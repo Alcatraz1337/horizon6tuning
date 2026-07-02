@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>horizon6tuning · Forza Horizon 6 live telemetry</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">▰</span>
+      <div>
+        <h1>horizon6tuning</h1>
+        <p class="tag">Forza Horizon 6 · live telemetry + LLM coaching</p>
+      </div>
+    </div>
+    <div class="status">
+      <span id="connDot" class="dot off" title="telemetry stream"></span>
+      <div class="status-text">
+        <span id="connLabel">waiting for telemetry…</span>
+        <span id="stats" class="stats"></span>
+      </div>
+    </div>
+  </header>
+
+  <main class="grid">
+    <!-- left: gauges -->
+    <section class="card gauges">
+      <div class="gauge rpm">
+        <div class="gauge-value"><span id="rpm">0</span><small>rpm</small></div>
+        <div class="rpm-bar"><i id="rpmFill"></i></div>
+        <div class="gauge-sub"><span id="gearLabel">N</span> · <span id="speedKmh">0</span> km/h · <span id="speedMph">0</span> mph</div>
+      </div>
+      <div class="speed-arc">
+        <svg viewBox="0 0 120 70" aria-hidden="true">
+          <path class="track" d="M10 60 A50 50 0 0 1 110 60" />
+          <path id="speedArc" class="fill" d="M10 60 A50 50 0 0 1 110 60" pathLength="100" />
+        </svg>
+        <div class="speed-readout"><span id="speedBig">0</span><small>km/h</small></div>
+      </div>
+    </section>
+
+    <!-- center: controls + sparkline -->
+    <section class="card center">
+      <div class="pedals">
+        <div class="pedal" data-label="THROTTLE"><i id="throttleFill"></i><span id="throttleVal">0%</span></div>
+        <div class="pedal brake" data-label="BRAKE"><i id="brakeFill"></i><span id="brakeVal">0%</span></div>
+        <div class="pedal clutch" data-label="CLUTCH"><i id="clutchFill"></i><span id="clutchVal">0%</span></div>
+        <div class="pedal handbrake" data-label="HANDBRAKE"><i id="handbrakeFill"></i><span id="handbrakeVal">0%</span></div>
+      </div>
+      <div class="steer-row">
+        <span>L</span>
+        <div class="steer"><i id="steerFill"></i><b id="steerMark"></b></div>
+        <span>R</span>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="sparkline"></canvas>
+      </div>
+    </section>
+
+    <!-- right: lap + tires + fuel -->
+    <section class="card side">
+      <div class="laps">
+        <div><small>Lap</small><b id="lapNum">–</b></div>
+        <div><small>Pos</small><b id="racePos">–</b></div>
+        <div><small>Current</small><b id="curLap">–</b></div>
+        <div><small>Last</small><b id="lastLap">–</b></div>
+        <div><small>Best</small><b id="bestLap">–</b></div>
+      </div>
+      <div class="tires">
+        <div class="tire" id="tireFL"><small>FL</small><b>–</b><i></i></div>
+        <div class="tire" id="tireFR"><small>FR</small><b>–</b><i></i></div>
+        <div class="tire" id="tireRL"><small>RL</small><b>–</b><i></i></div>
+        <div class="tire" id="tireRR"><small>RR</small><b>–</b><i></i></div>
+      </div>
+      <div class="fuels">
+        <div><small>Fuel</small><div class="bar"><i id="fuelFill"></i></div></div>
+        <div><small>Boost</small><div class="bar"><i id="boostFill"></i></div></div>
+        <div><small>Power</small><b id="powerVal">–</b><small>kW</small></div>
+        <div><small>Torque</small><b id="torqueVal">–</b><small>Nm</small></div>
+      </div>
+    </section>
+
+    <!-- bottom: insights -->
+    <section class="card insights">
+      <div class="insights-head">
+        <h2>LLM coaching insights</h2>
+        <div class="insights-actions">
+          <input id="extraContext" type="text" placeholder="optional: focus (e.g. 'corner exit on long straights')" />
+          <button id="analyzeBtn">Analyze</button>
+        </div>
+      </div>
+      <div id="insightsBody" class="insights-body">
+        <p class="placeholder">Press <b>Analyze</b> to send the current telemetry window to the configured LLM (OpenAI / Anthropic / DeepSeek) for driving coaching.</p>
+      </div>
+      <div id="insightsMeta" class="insights-meta"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

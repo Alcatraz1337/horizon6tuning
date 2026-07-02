@@ -1,0 +1,145 @@
+:root{
+  --bg:#0a0c10;
+  --panel:#11151c;
+  --panel-2:#161b24;
+  --line:#222a36;
+  --text:#e6edf3;
+  --muted:#8b97a6;
+  --accent:#ff3b30;     /* racing red */
+  --accent-2:#ffb000;   /* amber */
+  --good:#2bd576;
+  --warn:#ffb000;
+  --bad:#ff3b30;
+  --cool:#3aa0ff;
+  --radius:14px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(255,59,48,.10), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(58,160,255,.08), transparent 60%),
+    var(--bg);
+  color:var(--text);
+  font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Inter,sans-serif;
+  min-height:100vh;
+}
+
+/* ---- top bar ---- */
+.topbar{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:14px 22px;border-bottom:1px solid var(--line);
+  position:sticky;top:0;background:rgba(10,12,16,.85);backdrop-filter:blur(8px);z-index:5;
+}
+.brand{display:flex;align-items:center;gap:12px}
+.logo{font-size:26px;color:var(--accent);text-shadow:0 0 18px rgba(255,59,48,.5)}
+.brand h1{font-size:17px;margin:0;letter-spacing:.5px}
+.tag{margin:0;color:var(--muted);font-size:12px}
+.status{display:flex;align-items:center;gap:10px}
+.status-text{display:flex;flex-direction:column;align-items:flex-end;line-height:1.25}
+.stats{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.dot{width:11px;height:11px;border-radius:50%;background:var(--muted);box-shadow:0 0 0 0 rgba(0,0,0,0)}
+.dot.on{background:var(--good);box-shadow:0 0 14px rgba(43,213,118,.7);animation:pulse 1.6s infinite}
+.dot.off{background:#444}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ---- layout ---- */
+.grid{
+  display:grid;gap:16px;padding:16px;
+  grid-template-columns:1.1fr 1.6fr 1.1fr;
+  grid-template-areas:
+    "gauges center side"
+    "insights insights insights";
+  max-width:1400px;margin:0 auto;
+}
+.card{
+  background:linear-gradient(180deg,var(--panel),var(--panel-2));
+  border:1px solid var(--line);border-radius:var(--radius);padding:18px;
+}
+.gauges{grid-area:gauges}
+.center{grid-area:center;display:flex;flex-direction:column;gap:16px}
+.side{grid-area:side;display:flex;flex-direction:column;gap:16px}
+.insights{grid-area:insights}
+@media(max-width:980px){
+  .grid{grid-template-columns:1fr;grid-template-areas:"gauges" "center" "side" "insights"}
+}
+
+/* ---- rpm gauge ---- */
+.gauge.rpm .gauge-value{font-family:var(--mono);font-size:34px;font-weight:700;letter-spacing:-1px}
+.gauge.rpm .gauge-value small{font-size:13px;color:var(--muted);margin-left:6px;font-weight:400}
+.rpm-bar{height:8px;background:#0a0d12;border-radius:6px;overflow:hidden;margin:10px 0 8px;border:1px solid var(--line)}
+.rpm-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--good),var(--warn) 70%,var(--accent));transition:width .07s linear}
+.gauge-sub{font-family:var(--mono);color:var(--muted);font-size:13px}
+#gearLabel{color:var(--accent-2);font-weight:700;font-size:16px}
+
+/* ---- speed arc ---- */
+.speed-arc{position:relative;margin-top:18px;text-align:center}
+.speed-arc svg{width:100%;height:auto}
+.speed-arc .track{fill:none;stroke:#1c2430;stroke-width:8;stroke-linecap:round}
+.speed-arc .fill{fill:none;stroke:url(#g);stroke-width:8;stroke-linecap:round;stroke:var(--accent);stroke-dasharray:100;stroke-dashoffset:100;transition:stroke-dashoffset .08s linear}
+.speed-readout{position:absolute;left:0;right:0;bottom:4px}
+.speed-readout span{font-family:var(--mono);font-size:30px;font-weight:700}
+.speed-readout small{color:var(--muted);margin-left:4px}
+
+/* ---- pedals ---- */
+.pedals{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.pedal{position:relative;height:92px;background:#0a0d12;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.pedal::before{content:attr(data-label);position:absolute;top:8px;left:0;right:0;text-align:center;font-size:10px;letter-spacing:1px;color:var(--muted)}
+.pedal i{position:absolute;left:0;right:0;bottom:0;height:0%;background:linear-gradient(0deg,var(--good),rgba(43,213,118,.2));transition:height .06s linear}
+.pedal.brake i{background:linear-gradient(0deg,var(--accent),rgba(255,59,48,.2))}
+.pedal.clutch i{background:linear-gradient(0deg,var(--cool),rgba(58,160,255,.2))}
+.pedal.handbrake i{background:linear-gradient(0deg,var(--accent-2),rgba(255,176,0,.2))}
+.pedal span{position:absolute;bottom:6px;left:0;right:0;text-align:center;font-family:var(--mono);font-size:12px;font-weight:700}
+
+/* ---- steer ---- */
+.steer-row{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px}
+.steer{position:relative;flex:1;height:14px;background:#0a0d12;border:1px solid var(--line);border-radius:8px}
+.steer i{position:absolute;top:0;bottom:0;left:50%;width:0;background:var(--cool);opacity:.5}
+.steer b{position:absolute;top:-3px;left:50%;width:4px;height:20px;background:var(--text);border-radius:2px;transform:translateX(-50%);transition:left .06s linear}
+
+/* ---- sparkline ---- */
+.chart-wrap{height:160px;background:#0a0d12;border:1px solid var(--line);border-radius:10px;padding:8px}
+
+/* ---- laps ---- */
+.laps{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;text-align:center}
+.laps > div{background:#0a0d12;border:1px solid var(--line);border-radius:8px;padding:8px 4px}
+.laps small{display:block;color:var(--muted);font-size:10px;letter-spacing:.5px}
+.laps b{font-family:var(--mono);font-size:16px}
+
+/* ---- tires ---- */
+.tires{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tire{position:relative;background:#0a0d12;border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center}
+.tire small{color:var(--muted);font-size:10px;letter-spacing:1px}
+.tire b{display:block;font-family:var(--mono);font-size:18px}
+.tire i{position:absolute;left:8px;right:8px;bottom:8px;height:4px;border-radius:3px;background:var(--cool)}
+
+/* ---- fuels ---- */
+.fuels{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;align-items:center}
+.fuels > div{display:flex;align-items:center;gap:8px}
+.fuels small{color:var(--muted);font-size:11px;min-width:46px}
+.fuels b{font-family:var(--mono)}
+.fuels .bar{flex:1;height:8px;background:#0a0d12;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.fuels .bar i{display:block;height:100%;width:0;background:var(--good)}
+#boostFill{background:var(--accent-2)}
+
+/* ---- insights ---- */
+.insights-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap}
+.insights-head h2{margin:0;font-size:15px;letter-spacing:.4px}
+.insights-actions{display:flex;gap:8px}
+#extraContext{background:#0a0d12;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 10px;min-width:260px;font-size:13px}
+#analyzeBtn{
+  background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 16px;font-weight:600;cursor:pointer;
+  box-shadow:0 0 0 0 rgba(255,59,48,.4);transition:transform .05s,box-shadow .2s
+}
+#analyzeBtn:hover{box-shadow:0 0 18px rgba(255,59,48,.45)}
+#analyzeBtn:active{transform:translateY(1px)}
+#analyzeBtn:disabled{opacity:.5;cursor:wait}
+.insights-body{font-size:14px;min-height:80px}
+.insights-body .placeholder{color:var(--muted);margin:0}
+.insights-body ul{margin:6px 0;padding-left:20px}
+.insights-body li{margin:4px 0}
+.insights-body strong{color:var(--accent-2)}
+.insights-meta{margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.insights-body .err{color:var(--bad)}

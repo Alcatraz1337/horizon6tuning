@@ -1,0 +1,1 @@
+"""FastAPI app: static frontend, telemetry WebSocket, status & insights REST."""
