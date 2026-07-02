@@ -93,12 +93,25 @@ async def telemetry_ws(ws: WebSocket) -> None:
         while True:
             frame = await q.get()
             await ws.send_text(json.dumps(frame.to_dict()))
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, asyncio.CancelledError):
+        # WebSocketDisconnect -> client closed the connection.
+        # CancelledError   -> uvicorn cancelled this task during shutdown.
+        #   asyncio.CancelledError is a BaseException (not Exception) since
+        #   Python 3.8, so `except Exception` does NOT catch it. If it propagates
+        #   out, uvicorn's run_asgi logs `ERROR: Exception in ASGI application`
+        #   (its `except BaseException` clause). Catch it here and exit cleanly
+        #   so shutdown stays quiet. This is a leaf handler at process teardown,
+        #   not a structured-concurrency primitive, so swallowing is safe here.
         pass
     except Exception as exc:  # noqa: BLE001
         log.warning("ws error: %s", exc)
     finally:
         _manager.disconnect(ws)
+        # best-effort close; the transport is torn down by uvicorn regardless.
+        try:
+            await ws.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 @router.post("/api/insights")

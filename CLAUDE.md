@@ -24,8 +24,12 @@ python -m app.main
 # Test without the game (streams synthetic 324B packets to UDP_PORT)
 python scripts/fake_sender.py
 
-# Parser tests (no pytest needed; also works with `pytest tests/`)
-python tests/test_parser.py
+# Tests (no pytest needed; also works with `pytest tests/`)
+python tests/test_parser.py        # parser round-trip
+python tests/test_ws_shutdown.py   # WS handler swallows CancelledError on shutdown
+
+# Verify the WS graceful-shutdown fix end-to-end (in-process uvicorn + live WS)
+python scripts/verify_graceful_shutdown.py
 ```
 
 Environment is configured via `.env` (see `.env.example`): `UDP_HOST/UDP_PORT`
@@ -100,3 +104,23 @@ Chart.js sparkline, and calls `POST /api/insights`.
   helpful message rather than crashing.
 - **Logging is stride-throttled** (`LOG_STRIDE`, default 5 ≈ 12 rows/sec at 60Hz)
   and `flush()`es each write so a crash doesn't lose the session.
+
+## Known upstream issue: lifespan `CancelledError` on Ctrl+C
+
+On shutdown with an active WebSocket, uvicorn cancels the parked WS handler task,
+injecting `asyncio.CancelledError` at `await q.get()`. The handler in
+`app/api/routes.py` catches `(WebSocketDisconnect, asyncio.CancelledError)` and
+exits cleanly so uvicorn does **not** log `Exception in ASGI application`
+(`CancelledError` is a `BaseException`, not `Exception`, since Python 3.8 —
+`except Exception` will not catch it; uvicorn's `run_asgi` logs any `BaseException`
+as ERROR). `tests/test_ws_shutdown.py` and `scripts/verify_graceful_shutdown.py`
+guard this.
+
+A **second** traceback can still appear from `starlette/routing.py lifespan` →
+`await receive()` → `CancelledError`. This is an **upstream starlette/uvicorn**
+bug (starlette's `lifespan()` catches `BaseException` and mislabels
+`CancelledError` as `lifespan.shutdown.failed`; uvicorn's `LifespanOn` doesn't
+special-case it). It is triggered by a second Ctrl+C (force quit) during
+graceful shutdown and is **not app-fixable** without log filtering. Tracked in
+[uvicorn #2367](https://github.com/encode/uvicorn/pull/2367) and
+[uvicorn #2173](https://github.com/encode/uvicorn/issues/2173). Don't chase it.
