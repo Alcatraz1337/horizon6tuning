@@ -126,6 +126,10 @@ async function pollStatus() {
     $("stats").textContent = live
       ? `${s.packets_parsed} pkts · ${s.buffer_frames} buffered`
       : (s.last_error || "");
+    // sync logging toggle from server
+    if (s.logger && typeof s.logger.active === "boolean") {
+      setLoggingUI(s.logger.active);
+    }
   } catch { /* server starting up */ }
 }
 setInterval(pollStatus, 1000);
@@ -183,3 +187,38 @@ async function analyze() {
 }
 btn.addEventListener("click", analyze);
 $("extraContext").addEventListener("keydown", (e) => { if (e.key === "Enter") analyze(); });
+
+// ---- logging toggle (ROADMAP item 1) ----
+const logBtn = $("logToggle");
+let loggingActive = false;
+let logInFlight = false;
+
+function setLoggingUI(active) {
+  if (active === loggingActive && logBtn.getAttribute("aria-pressed") === String(active)) return;
+  loggingActive = active;
+  logBtn.setAttribute("aria-pressed", String(active));
+  logBtn.title = `Logging to disk: ${active ? "on" : "off"}`;
+  logBtn.querySelector(".log-label").textContent = active ? "Logging on" : "Logging off";
+  logBtn.querySelector(".dot").className = "dot " + (active ? "on" : "off");
+}
+
+logBtn.addEventListener("click", async () => {
+  if (logInFlight) return;
+  logInFlight = true;
+  logBtn.disabled = true;
+  const next = !loggingActive;
+  try {
+    const r = await fetch("/api/logging", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: next }),
+    });
+    if (!r.ok) throw new Error("logging toggle failed");
+    setLoggingUI(next);
+  } catch {
+    // leave UI as-is; next pollStatus tick will resync from server
+  } finally {
+    logInFlight = false;
+    logBtn.disabled = false;
+  }
+});

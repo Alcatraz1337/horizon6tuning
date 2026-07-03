@@ -119,3 +119,25 @@ async def latest_insight() -> dict:
     service: InsightsService = router.state["insights"]
     out = service.latest()
     return out if out is not None else {"text": None}
+
+
+# ---- logging control -------------------------------------------------------
+# ROADMAP item 1: a top-bar toggle starts/stops the file logger without
+# restarting the app. Default is off on launch; each "on" period is one
+# timestamped CSV/JSONL pair on disk.
+
+@router.get("/api/logging")
+async def logging_state() -> dict:
+    logger = router.state.get("logger")
+    return logger.info() if logger else {"active": False}
+
+
+@router.post("/api/logging")
+async def logging_toggle(payload: dict | None = None) -> dict:
+    logger = router.state.get("logger")
+    if logger is None:
+        raise HTTPException(status_code=503, detail="logger not initialized")
+    enabled = (payload or {}).get("enabled")
+    if not isinstance(enabled, bool):
+        raise HTTPException(status_code=400, detail="body must include boolean 'enabled'")
+    return logger.start() if enabled else logger.stop()
