@@ -81,6 +81,34 @@ Package layout under `app/`:
 renders frames into `index.html`'s gauges/pedals/tire/lap widgets, keeps a
 Chart.js sparkline, and calls `POST /api/insights`.
 
+## Project direction & roadmap
+
+The product target is a **shareable open-source tuning tool, useful from
+beginner to pro**. The full execution-ordered feature list (21 items) lives in
+[`ROADMAP.md`](ROADMAP.md) at the repo root. Two constraints from that roadmap
+affect how new features are designed and should be respected on every change:
+
+- **Beginner → pro is one tool, not two.** Achieved via a Simple/Advanced
+  mode toggle in the dashboard (currently planned as ROADMAP item 8), with
+  per-widget "?" tooltips and expand affordances layered on top (item 9).
+  Simple mode is a curated subset, not a parallel code path.
+- **The 9 tuning categories are tire pressure, gearing, alignment (camber /
+  toe / caster), anti-roll bars, springs (rate + ride height), damping
+  (rebound / compression), aero (downforce), brake (bias / pad / rotor), and
+  differential (accel lock / decel lock / preload). Of these, only
+  **gearing is derivable from the live UDP stream**; the other 8 are setup
+  metadata that the user must enter and store against each session. A
+  feature that "reads" tire pressure, alignment, ARB, springs, damping,
+  aero, brake, or diff out of the live telemetry is making a wrong
+  assumption — that data is per-setup, not per-frame. Live telemetry can
+  give us *measured* behavior (tire temp/slip, suspension travel, G-forces)
+  on those dimensions, but the *intended* values come from the attached
+  Setup (ROADMAP items 3–4).
+
+**Persistence is files only** for now (CSV/JSONL logs + a `sessions.json`
+index + `setups/` JSON files). SQLite is parked in `ROADMAP.md` under
+"Parked ideas" — revisit when in-app queries matter.
+
 ## Key Design Decisions & Constraints
 
 - **Telemetry → LLM cadence is decoupled.** Telemetry is ~60Hz; LLM calls are
