@@ -141,3 +141,26 @@ async def logging_toggle(payload: dict | None = None) -> dict:
     if not isinstance(enabled, bool):
         raise HTTPException(status_code=400, detail="body must include boolean 'enabled'")
     return logger.start() if enabled else logger.stop()
+
+
+# ---- per-lap segmentation ---------------------------------------------------
+# ROADMAP item 2: lap boundaries detected from the live stream; per-lap
+# summaries served read-only. Lap state lives on `router.state["laps"]`.
+
+@router.get("/api/laps")
+async def laps_list() -> dict:
+    laps = router.state.get("laps")
+    if laps is None:
+        return {"current": None, "completed": []}
+    return {"current": laps.current(), "completed": laps.completed()}
+
+
+@router.get("/api/laps/{lap_number}")
+async def lap_detail(lap_number: int):
+    laps = router.state.get("laps")
+    if laps is None:
+        return JSONResponse({"error": f"lap {lap_number} not found"}, status_code=404)
+    out = laps.lap(lap_number)
+    if out is None:
+        return JSONResponse({"error": f"lap {lap_number} not found"}, status_code=404)
+    return out

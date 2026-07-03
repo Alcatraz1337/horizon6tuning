@@ -19,6 +19,7 @@ from .config import get_settings
 from .insights.service import InsightsService
 from .llm.factory import build_llm_client, LLMConfigError
 from .store.buffer import TelemetryBuffer
+from .store.laps import LapTracker
 from .store.logger import TelemetryLogger
 from .telemetry.listener import TelemetryServer
 
@@ -34,6 +35,7 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
 
     buffer = TelemetryBuffer(maxlen=settings.buffer_frames)
+    laps = LapTracker(maxlen=200)
     logger = TelemetryLogger(
         log_dir=settings.log_dir, stride=settings.log_stride, fmt=settings.log_format
     )
@@ -52,9 +54,9 @@ async def lifespan(app: FastAPI):
 
     insights = InsightsService(buffer=buffer, llm=llm)
 
-    # wire the live WebSocket publisher into the UDP listener
+    # wire the live WebSocket publisher and lap tracker into the UDP listener
     manager = get_manager()
-    telemetry.set_on_frame(lambda frame: manager.publish(frame))
+    telemetry.set_on_frame(lambda frame: (manager.publish(frame), laps.on_frame(frame)))
 
     await telemetry.start()
 
@@ -63,6 +65,7 @@ async def lifespan(app: FastAPI):
         "telemetry_server": telemetry,
         "insights": insights,
         "buffer": buffer,
+        "laps": laps,
         "logger": logger,
         "settings": settings,
     }
