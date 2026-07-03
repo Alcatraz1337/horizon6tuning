@@ -16,12 +16,21 @@
         <p class="tag">Forza Horizon 6 · live telemetry + LLM coaching</p>
       </div>
     </div>
-    <div class="status">
-      <span id="connDot" class="dot off" title="telemetry stream"></span>
-      <div class="status-text">
-        <span id="connLabel">waiting for telemetry…</span>
-        <span id="stats" class="stats"></span>
+    <div class="topbar-right">
+      <div class="status">
+        <span id="connDot" class="dot off" title="telemetry stream"></span>
+        <div class="status-text">
+          <span id="connLabel">waiting for telemetry…</span>
+          <span id="stats" class="stats"></span>
+        </div>
       </div>
+      <button id="logToggle" class="log-toggle" type="button"
+              aria-pressed="false"
+              aria-label="Toggle telemetry logging to disk"
+              title="Logging to disk: off">
+        <span class="dot off" aria-hidden="true"></span>
+        <span class="log-label">Logging off</span>
+      </button>
     </div>
   </header>
 
