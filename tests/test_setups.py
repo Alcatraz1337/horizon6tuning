@@ -405,6 +405,16 @@ def test_api_setups_503_when_store_missing() -> None:
     assert isinstance(res, JSONResponse) and res.status_code == 503
 
 
+# ---- 8. main.py wiring -----------------------------------------------------
+
+def test_create_app_has_setup_routes() -> None:
+    from app.main import create_app
+    app = create_app()
+    paths = {getattr(r, "path", None) for r in app.routes}
+    assert "/api/setups" in paths
+    assert "/api/session/setup" in paths
+
+
 if __name__ == "__main__":
     _run_all = [v for k, v in sorted(globals().items())
                 if k.startswith("test_") and callable(v)]

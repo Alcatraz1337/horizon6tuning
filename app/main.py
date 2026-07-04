@@ -21,6 +21,7 @@ from .llm.factory import build_llm_client, LLMConfigError
 from .store.buffer import TelemetryBuffer
 from .store.laps import LapTracker
 from .store.logger import TelemetryLogger
+from .store.setups import SetupStore
 from .telemetry.listener import TelemetryServer
 
 logging.basicConfig(
@@ -39,6 +40,7 @@ async def lifespan(app: FastAPI):
     logger = TelemetryLogger(
         log_dir=settings.log_dir, stride=settings.log_stride, fmt=settings.log_format
     )
+    setups = SetupStore(setups_dir=settings.setups_dir)
 
     telemetry = TelemetryServer(
         host=settings.udp_host, port=settings.udp_port, buffer=buffer, logger=logger
@@ -68,6 +70,8 @@ async def lifespan(app: FastAPI):
         "laps": laps,
         "logger": logger,
         "settings": settings,
+        "setups": setups,
+        "current_setup_id": None,
     }
 
     log.info("Dashboard: http://%s:%d", settings.web_host, settings.web_port)
