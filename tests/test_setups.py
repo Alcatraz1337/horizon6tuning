@@ -255,6 +255,156 @@ def test_store_package_exports() -> None:
     assert "SetupStore" in store_pkg.__all__
 
 
+# ---- 7. API routes ---------------------------------------------------------
+
+def _setup_router_state_with_store(store: SetupStore) -> None:
+    from app.api import routes
+    routes.router.state = {"setups": store, "current_setup_id": None}
+
+
+def _setup_router_state_no_store() -> None:
+    from app.api import routes
+    routes.router.state = {}
+
+
+def test_api_setups_list_and_create() -> None:
+    from app.api.routes import setups_list, setup_create
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = SetupStore(d)
+        _setup_router_state_with_store(store)
+        out = asyncio.run(setups_list())
+        assert out == {"setups": []}
+        created = asyncio.run(setup_create({"name": "R32", "car": "R32"}))
+        assert is_valid_setup_id(created["id"])
+        out = asyncio.run(setups_list())
+        assert len(out["setups"]) == 1
+        assert out["setups"][0]["name"] == "R32"
+
+
+def test_api_setup_create_400_missing_name() -> None:
+    from app.api.routes import setup_create
+    from fastapi.responses import JSONResponse
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = SetupStore(d)
+        _setup_router_state_with_store(store)
+        res = asyncio.run(setup_create({"car": "x"}))
+        assert isinstance(res, JSONResponse)
+        assert res.status_code == 400
+
+
+def test_api_setup_detail_found_and_404() -> None:
+    from app.api.routes import setup_detail, setup_create
+    from fastapi.responses import JSONResponse
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = SetupStore(d)
+        _setup_router_state_with_store(store)
+        created = asyncio.run(setup_create({"name": "x"}))
+        got = asyncio.run(setup_detail(created["id"]))
+        assert isinstance(got, dict)
+        assert got["id"] == created["id"]
+        missing = asyncio.run(setup_detail("a3f1b2c4d5e6f7089a1b2c3d4e5f6071"))
+        assert isinstance(missing, JSONResponse)
+        assert missing.status_code == 404
+
+
+def test_api_setup_update_and_delete() -> None:
+    from app.api.routes import setup_create, setup_update, setup_delete
+    from fastapi.responses import JSONResponse
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = SetupStore(d)
+        _setup_router_state_with_store(store)
+        created = asyncio.run(setup_create({"name": "old"}))
+        updated = asyncio.run(setup_update(created["id"], {"name": "new"}))
+        assert isinstance(updated, dict)
+        assert updated["name"] == "new"
+        # 404 on missing
+        miss = asyncio.run(setup_update("a3f1b2c4d5e6f7089a1b2c3d4e5f6071", {"name": "x"}))
+        assert isinstance(miss, JSONResponse) and miss.status_code == 404
+        # delete
+        deleted = asyncio.run(setup_delete(created["id"]))
+        assert deleted == {"deleted": created["id"]}
+        miss2 = asyncio.run(setup_delete(created["id"]))
+        assert isinstance(miss2, JSONResponse) and miss2.status_code == 404
+
+
+def test_api_session_attach_and_read() -> None:
+    from app.api.routes import (
+        session_current_setup, session_attach_setup, setup_create,
+    )
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = SetupStore(d)
+        _setup_router_state_with_store(store)
+        # initially nothing
+        out = asyncio.run(session_current_setup())
+        assert out == {"setup_id": None, "setup": None}
+        # attach
+        created = asyncio.run(setup_create({"name": "R32"}))
+        attached = asyncio.run(session_attach_setup({"setup_id": created["id"]}))
+        assert attached["setup_id"] == created["id"]
+        assert attached["setup"]["name"] == "R32"
+        # read back
+        out = asyncio.run(session_current_setup())
+        assert out["setup_id"] == created["id"]
+        assert out["setup"]["name"] == "R32"
+        # detach with null
+        detached = asyncio.run(session_attach_setup({"setup_id": None}))
+        assert detached == {"setup_id": None, "setup": None}
+        assert asyncio.run(session_current_setup()) == {"setup_id": None, "setup": None}
+
+
+def test_api_session_attach_400_bad_format() -> None:
+    from app.api.routes import session_attach_setup
+    from fastapi.responses import JSONResponse
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = SetupStore(d)
+        _setup_router_state_with_store(store)
+        for bad in ("not-a-uuid", "deadbeef", "../etc/passwd"):
+            res = asyncio.run(session_attach_setup({"setup_id": bad}))
+            assert isinstance(res, JSONResponse) and res.status_code == 400, bad
+
+
+def test_api_session_attach_404_valid_but_missing() -> None:
+    from app.api.routes import session_attach_setup
+    from fastapi.responses import JSONResponse
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = SetupStore(d)
+        _setup_router_state_with_store(store)
+        res = asyncio.run(session_attach_setup(
+            {"setup_id": "a3f1b2c4d5e6f7089a1b2c3d4e5f6071"}))
+        assert isinstance(res, JSONResponse) and res.status_code == 404
+
+
+def test_api_session_dangling_after_delete() -> None:
+    from app.api.routes import (
+        session_attach_setup, session_current_setup, setup_create, setup_delete,
+    )
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = SetupStore(d)
+        _setup_router_state_with_store(store)
+        created = asyncio.run(setup_create({"name": "x"}))
+        asyncio.run(session_attach_setup({"setup_id": created["id"]}))
+        asyncio.run(setup_delete(created["id"]))
+        out = asyncio.run(session_current_setup())
+        assert out["setup_id"] == created["id"]   # dangling id stays
+        assert out["setup"] is None               # but the setup is gone
+
+
+def test_api_setups_503_when_store_missing() -> None:
+    from app.api.routes import setups_list
+    from fastapi.responses import JSONResponse
+    _setup_router_state_no_store()
+    res = asyncio.run(setups_list())
+    assert isinstance(res, JSONResponse) and res.status_code == 503
+
+
 if __name__ == "__main__":
     _run_all = [v for k, v in sorted(globals().items())
                 if k.startswith("test_") and callable(v)]
