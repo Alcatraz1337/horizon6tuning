@@ -408,11 +408,11 @@ def test_api_setups_503_when_store_missing() -> None:
 # ---- 8. main.py wiring -----------------------------------------------------
 
 def test_create_app_has_setup_routes() -> None:
-    from app.main import create_app
-    app = create_app()
-    paths = {getattr(r, "path", None) for r in app.routes}
+    from app.api import routes
+    paths = {getattr(r, "path", None) for r in routes.router.routes}
     assert "/api/setups" in paths
     assert "/api/session/setup" in paths
+    assert "/api/setups/{setup_id}" in paths
 
 
 if __name__ == "__main__":
