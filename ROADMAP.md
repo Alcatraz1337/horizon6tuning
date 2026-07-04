@@ -54,21 +54,25 @@ same branch as the implementation.
    `docs/superpowers/specs/2026-07-04-per-lap-segmentation-design.md`.
    v1 is backend + API + tests only — no frontend UI, no disk persistence
    (those are items 5/7/10). Not yet merged to `main`.)*
-3. **Setup data model** `[in progress]` — define a `Setup` as
+3. **Setup data model** `[done · branch feature/setup-data-model]` — define a `Setup` as
    `{id, name, car, track, fields: {…}, notes, created_at}` and store setups
    as JSON files in `setups/`. The 9 field sections are listed in step 4.
    A session references one setup.
 4. **Setup editor (v1, all 9 categories)** — a single page in the dashboard
-   with 9 collapsible sections the user fills in:
-   - **Tire pressure** — cold pressure FL/FR/RL/RR (PSI)
-   - **Gearing** — final drive, individual gear ratios (1st..top)
-   - **Alignment** — camber FL/FR/RL/RR, toe FL/FR/RL/RR, caster FL/FR
+   with 9 collapsible sections the user fills in (FH6-verified field shapes;
+   the canonical field list lives in `app/store/setups.py::SETUP_FIELD_SCHEMA`):
+   - **Tire pressure** — cold pressure FL/FR/RL/RR (PSI, per-wheel)
+   - **Gearing** — final drive, individual gear ratios (1st..top, list)
+   - **Alignment** — camber front/rear, toe front/rear, caster (single)
    - **Anti-roll bars** — ARB front, ARB rear (stiffness)
-   - **Springs** — spring rate FL/FR/RL/RR, ride height FL/FR/RL/RR
-   - **Damping** — rebound FL/FR/RL/RR, compression FL/FR/RL/RR
+   - **Springs** — spring rate front/rear, ride height front/rear
+   - **Damping** — rebound front/rear, bump front/rear (FH6 labels
+     compression "bump")
    - **Aero** — front downforce, rear downforce
-   - **Brake** — brake bias, pad compound, rotor size
-   - **Differential** — accel lock, decel lock, preload (front/rear/center)
+   - **Brake** — brake bias, brake pressure (pad compound / rotor size are
+     upgrade parts, not tuning sliders)
+   - **Differential** — accel lock front/rear, decel lock front/rear,
+     center balance (AWD only; FH6 has no diff preload)
    Attach a setup to the current session so the LLM knows the *current* setup
    when it generates insight.
 5. **Session index + simple session browser** — maintain a `sessions.json`
