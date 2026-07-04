@@ -22,6 +22,10 @@ logs/
 *.csv
 *.jsonl
 
+# Setup library (generated at runtime; one JSON file per user setup)
+setups/*
+!setups/.gitkeep
+
 # Editor / OS
 .vscode/
 .idea/

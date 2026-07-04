@@ -239,6 +239,22 @@ def test_store_creates_dir_if_missing(tmp_path) -> None:
     assert sub.is_dir()
 
 
+# ---- 6. config + package exports -------------------------------------------
+
+def test_settings_has_setups_dir_default() -> None:
+    from app.config import Settings
+    s = Settings()
+    assert s.setups_dir == "./setups"
+
+
+def test_store_package_exports() -> None:
+    import app.store as store_pkg
+    assert hasattr(store_pkg, "Setup")
+    assert hasattr(store_pkg, "SetupStore")
+    assert "Setup" in store_pkg.__all__
+    assert "SetupStore" in store_pkg.__all__
+
+
 if __name__ == "__main__":
     _run_all = [v for k, v in sorted(globals().items())
                 if k.startswith("test_") and callable(v)]
