@@ -120,3 +120,117 @@ def _normalize_fields(fields) -> dict:
             section_out[fn] = _coerce_number(v)
         out[section] = section_out
     return out
+
+
+class SetupStore:
+    """File-CRUD store for setups. One JSON file per setup in `setups_dir`."""
+
+    def __init__(self, setups_dir: str | Path) -> None:
+        self._dir = Path(setups_dir)
+        os.makedirs(self._dir, exist_ok=True)
+
+    # ---- public API --------------------------------------------------------
+
+    def list(self) -> list[dict]:
+        """Summaries (no `fields`), sorted by updated_at descending."""
+        summaries: list[dict] = []
+        for p in self._dir.glob("*.json"):
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            summaries.append({
+                "id": data.get("id", p.stem),
+                "name": data.get("name", ""),
+                "car": data.get("car", ""),
+                "track": data.get("track", ""),
+                "notes": data.get("notes", ""),
+                "updated_at": data.get("updated_at", 0.0),
+            })
+        summaries.sort(key=lambda s: s["updated_at"], reverse=True)
+        return summaries
+
+    def get(self, setup_id: str) -> Optional[dict]:
+        p = self._path(setup_id)
+        if p is None or not p.exists():
+            return None
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        return {k: data[k] for k in _SETUP_KEYS if k in data}
+
+    def create(self, data: dict) -> dict:
+        """Create a new setup. Raises ValueError if `name` is missing/blank."""
+        name = data.get("name")
+        if not name or not str(name).strip():
+            raise ValueError("setup 'name' is required")
+        now = time.time()
+        setup = Setup(
+            id=uuid.uuid4().hex,
+            name=str(name).strip(),
+            car=str(data.get("car", "")).strip(),
+            track=str(data.get("track", "")).strip(),
+            fields=_normalize_fields(data.get("fields") or {}),
+            notes=str(data.get("notes", "")),
+            created_at=now,
+            updated_at=now,
+        )
+        self._write(setup)
+        return setup.as_dict()
+
+    def update(self, setup_id: str, data: dict) -> Optional[dict]:
+        """Update an existing setup. None if not found / invalid id.
+        Raises ValueError if a provided name is blank."""
+        p = self._path(setup_id)
+        if p is None or not p.exists():
+            return None
+        try:
+            existing = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        merged = {k: existing[k] for k in _SETUP_KEYS if k in existing}
+        if "name" in data:
+            merged["name"] = str(data["name"]).strip()
+        if "car" in data:
+            merged["car"] = str(data["car"]).strip()
+        if "track" in data:
+            merged["track"] = str(data["track"]).strip()
+        if "notes" in data:
+            merged["notes"] = str(data["notes"])
+        if "fields" in data:
+            merged["fields"] = _normalize_fields(data["fields"])
+        if not str(merged.get("name", "")).strip():
+            raise ValueError("setup 'name' cannot be empty")
+        merged["id"] = existing.get("id", setup_id)
+        merged["created_at"] = existing.get("created_at", 0.0)
+        merged["updated_at"] = time.time()
+        setup = Setup(**{k: merged[k] for k in _SETUP_KEYS})
+        self._write(setup)
+        return setup.as_dict()
+
+    def delete(self, setup_id: str) -> bool:
+        """True if deleted, False if not found / invalid id."""
+        p = self._path(setup_id)
+        if p is None or not p.exists():
+            return False
+        try:
+            p.unlink()
+            return True
+        except OSError:
+            return False
+
+    # ---- internals ---------------------------------------------------------
+
+    def _path(self, setup_id: str) -> Optional[Path]:
+        if not is_valid_setup_id(setup_id):
+            return None
+        return self._dir / f"{setup_id}.json"
+
+    def _write(self, setup: Setup) -> None:
+        target = self._dir / f"{setup.id}.json"
+        tmp = self._dir / f"{setup.id}.json.tmp"
+        with tmp.open("w", encoding="utf-8") as f:
+            json.dump(setup.as_dict(), f, indent=2)
+            f.write("\n")
+        os.replace(tmp, target)

@@ -112,9 +112,144 @@ def test_setup_as_dict_roundtrip() -> None:
     assert d["created_at"] == 1000.0
 
 
+# ---- 5. SetupStore file CRUD ------------------------------------------------
+
+from app.store.setups import SetupStore
+
+
+def test_create_get_roundtrip(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "R32 Fuji", "car": "R32", "track": "Fuji",
+                            "fields": {"tire_pressure": {"fl": 32}}})
+    assert is_valid_setup_id(created["id"])
+    assert created["name"] == "R32 Fuji"
+    assert created["car"] == "R32"
+    assert created["track"] == "Fuji"
+    assert created["fields"] == {"tire_pressure": {"fl": 32.0}}
+    assert created["created_at"] == created["updated_at"]
+    # persisted to disk
+    assert (tmp_path / f"{created['id']}.json").exists()
+    # get returns the same
+    got = store.get(created["id"])
+    assert got == created
+
+
+def test_create_normalizes_fields(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "x", "fields": {
+        "tire_pressure": {"fl": "30", "bogus": 1}, "nope": {}}})
+    assert created["fields"] == {"tire_pressure": {"fl": 30.0}}
+
+
+def test_create_requires_name(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    try:
+        store.create({"car": "R32"})
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError for missing name")
+
+
+def test_create_empty_name_rejected(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    try:
+        store.create({"name": "   "})
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError for blank name")
+
+
+def test_list_returns_summaries_sorted_desc(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    a = store.create({"name": "a"})
+    b = store.create({"name": "b"})
+    c = store.create({"name": "c"})
+    summaries = store.list()
+    assert len(summaries) == 3
+    # newest first (c created last)
+    assert summaries[0]["id"] == c["id"]
+    assert summaries[-1]["id"] == a["id"]
+    # summaries have no `fields`
+    for s in summaries:
+        assert set(s) == {"id", "name", "car", "track", "notes", "updated_at"}
+        assert "fields" not in s
+
+
+def test_update_preserves_id_and_created_at(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "old", "fields": {"aero": {"front_downforce": 100}}})
+    updated = store.update(created["id"], {"name": "new",
+                                           "fields": {"aero": {"rear_downforce": 200}}})
+    assert updated is not None
+    assert updated["id"] == created["id"]
+    assert updated["created_at"] == created["created_at"]
+    assert updated["updated_at"] >= created["updated_at"]
+    assert updated["name"] == "new"
+    # fields replaced, not merged
+    assert updated["fields"] == {"aero": {"rear_downforce": 200.0}}
+    assert "front_downforce" not in updated["fields"]["aero"]
+
+
+def test_update_missing_returns_none(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    assert store.update("a3f1b2c4d5e6f7089a1b2c3d4e5f6071", {"name": "x"}) is None
+
+
+def test_update_empty_name_rejected(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "ok"})
+    try:
+        store.update(created["id"], {"name": ""})
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError for empty name on update")
+
+
+def test_delete(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "x"})
+    assert store.delete(created["id"]) is True
+    assert store.get(created["id"]) is None
+    assert store.delete(created["id"]) is False  # already gone
+
+
+def test_bad_id_rejection(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    for bad in ("../etc/passwd", "not-a-uuid", "deadbeef"):
+        assert store.get(bad) is None
+        assert store.update(bad, {"name": "x"}) is None
+        assert store.delete(bad) is False
+    # no files were created for bad ids
+    assert list(tmp_path.glob("*")) == []
+
+
+def test_atomic_write_leaves_no_tmp(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "x"})
+    assert list(tmp_path.glob("*.tmp")) == []
+    data = json.loads((tmp_path / f"{created['id']}.json").read_text())
+    assert data["name"] == "x"
+
+
+def test_store_creates_dir_if_missing(tmp_path) -> None:
+    sub = tmp_path / "nested" / "setups"
+    store = SetupStore(sub)
+    assert sub.exists()
+    store.create({"name": "x"})
+    assert sub.is_dir()
+
+
 if __name__ == "__main__":
     _run_all = [v for k, v in sorted(globals().items())
                 if k.startswith("test_") and callable(v)]
     for fn in _run_all:
-        fn()
+        # tmp_path tests need a temp dir; make one per call
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            try:
+                fn(Path(d))
+                continue
+            except TypeError:
+                pass
+            fn()
     print("setup data model tests passed")
