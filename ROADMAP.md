@@ -8,6 +8,21 @@ The list is intentionally flat (no phases, no "Now/Next/Later" bands). Items
 are numbered in the order we plan to tackle them. We work top-down, not in
 parallel. Items can be reordered as priorities shift.
 
+### Status markers
+
+Append a status marker to the end of an item's title line (do **not**
+renumber items). Update it when state changes:
+
+- `[done · merged]` — implemented, reviewed, and merged into `main`.
+- `[done · branch <name>]` — implemented and reviewed on the named branch,
+  not yet merged into `main` (PR pending or in review).
+- `[in progress]` — actively being worked on.
+- (no marker) — not started.
+
+A design spec for a completed item lives in
+`docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` and is committed on the
+same branch as the implementation.
+
 ## How to add a new item
 
 - Append it at the end of the list and give it the next number.
@@ -21,16 +36,24 @@ parallel. Items can be reordered as priorities shift.
 
 ## The list
 
-1. **Logging on/off toggle** — a top-bar switch in the dashboard that starts
+1. **Logging on/off toggle** `[done · merged]` — a top-bar switch in the dashboard that starts
    and stops the `TelemetryLogger` without restarting the app. Defaults to
    *off* on launch so no file is created until the user opts in. Turning it
    on opens a new timestamped CSV/JSONL pair; turning it off closes the
    current files and does not start a new one — every "on" period becomes
    exactly one session on disk, which keeps the session index clean.
-2. **Per-lap segmentation** — detect lap boundaries from the live stream
+   *(Merged to `main` via PR #1, commit d992c15.)*
+2. **Per-lap segmentation** `[done · branch feature/per-lap-segmentation]` — detect lap boundaries from the live stream
    (`lap_number` changes, `current_lap` resets, `distance_traveled` rollover)
    and compute per-lap summaries alongside the rolling buffer. This is the
    foundation for every later analysis feature.
+   *(Implemented: `app/store/laps.py` `LapTracker` + `GET /api/laps`,
+   `GET /api/laps/{n}`, wired in `main.py` lifespan; `tests/test_laps.py`
+   covers all 8 spec cases. Reviewed APPROVE-WITH-NITS, nits applied, all
+   tests green. Spec at
+   `docs/superpowers/specs/2026-07-04-per-lap-segmentation-design.md`.
+   v1 is backend + API + tests only — no frontend UI, no disk persistence
+   (those are items 5/7/10). Not yet merged to `main`.)*
 3. **Setup data model** — define a `Setup` as
    `{id, name, car, track, fields: {…}, notes, created_at}` and store setups
    as JSON files in `setups/`. The 9 field sections are listed in step 4.
