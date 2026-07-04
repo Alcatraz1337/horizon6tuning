@@ -54,7 +54,7 @@ same branch as the implementation.
    `docs/superpowers/specs/2026-07-04-per-lap-segmentation-design.md`.
    v1 is backend + API + tests only — no frontend UI, no disk persistence
    (those are items 5/7/10). Not yet merged to `main`.)*
-3. **Setup data model** — define a `Setup` as
+3. **Setup data model** `[in progress]` — define a `Setup` as
    `{id, name, car, track, fields: {…}, notes, created_at}` and store setups
    as JSON files in `setups/`. The 9 field sections are listed in step 4.
    A session references one setup.
