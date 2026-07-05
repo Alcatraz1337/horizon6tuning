@@ -529,8 +529,7 @@ class SetupStore:
             data = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
-        return {k: data.get(k) for k in _SETUP_KEYS if k in data} | data \
-            if False else {k: data[k] for k in _SETUP_KEYS if k in data}
+        return {k: data[k] for k in _SETUP_KEYS if k in data}
 
     def create(self, data: dict) -> dict:
         """Create a new setup. Raises ValueError if `name` is missing/blank."""
@@ -1208,4 +1207,4 @@ Expected: all tests pass, working tree clean, six commits on `feature/setup-data
 - **Spec coverage:** spec sections 1–5 map to Tasks 1–5; spec's ROADMAP update maps to Task 6. The data model, field schema, store, API, wiring, and tests are all covered. The session-link in-memory behavior (attach/detach/dangling) is covered by Task 4 tests.
 - **Placeholder scan:** no TBD/TODO; every code step contains real code; every test step contains real assertions.
 - **Type consistency:** `SetupStore` method names (`list`/`get`/`create`/`update`/`delete`) and `is_valid_setup_id` are used identically across Tasks 1–4. `SETUP_FIELD_SCHEMA` field names in tests (Task 1) match the implementation and the ROADMAP update (Task 6). Route function names (`setups_list`, `setup_detail`, `setup_create`, `setup_update`, `setup_delete`, `session_attach_setup`, `session_current_setup`) match between Task 4 tests and implementation.
-- **Known wrinkle:** the `get` method in Task 2 Step 3 contains a deliberate convoluted line followed by the clean version to use — implementer must use the clean version. (Flagged inline.)
+- **Known wrinkle:** none — the `get` method in Task 2 Step 3 contains the clean single return line.
