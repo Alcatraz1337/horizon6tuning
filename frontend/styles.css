@@ -380,3 +380,12 @@ body{
 
 /* ---- inline error under name ---- */
 .setups-meta .err{color:var(--accent);font-size:11px;margin-top:2px}
+
+/* ---- [hidden] attribute always wins over class display: rules ----
+ * Used by #liveView and #setupsView (and the empty-state <p>). The class
+ * `.grid{display:grid}` and `.setups-view{display:grid}` otherwise have
+ * the same specificity as the user-agent [hidden] rule but come later in
+ * the cascade, so they were silently winning and the hidden attribute
+ * was being ignored (R2 manual step 1: both views visible at once).
+ */
+[hidden] { display: none !important; }
