@@ -17,6 +17,15 @@
       </div>
     </div>
     <div class="topbar-right">
+      <div class="view-tabs" role="tablist" aria-label="Dashboard view">
+        <button id="tabLive" role="tab" aria-selected="true" type="button">Live</button>
+        <button id="tabSetups" role="tab" aria-selected="false" type="button">Setups</button>
+      </div>
+      <button id="currentSetupChip" class="current-setup-chip" type="button"
+              title="Click to manage setups">
+        <span class="caret">▸</span>
+        <span id="currentSetupName">no setup attached</span>
+      </button>
       <div class="status">
         <span id="connDot" class="dot off" title="telemetry stream"></span>
         <div class="status-text">
@@ -34,7 +43,7 @@
     </div>
   </header>
 
-  <main class="grid">
+  <main id="liveView" class="grid">
     <!-- left: gauges -->
     <section class="card gauges">
       <div class="gauge rpm">
@@ -108,6 +117,46 @@
     </section>
   </main>
 
+  <main id="setupsView" class="setups-view" hidden>
+    <aside class="setups-list">
+      <div class="setups-list-head">
+        <h2>My setups</h2>
+        <button id="setupsNew" class="btn primary" type="button">+ New setup</button>
+      </div>
+      <ul id="setupsList" class="setups-list-items" aria-label="Saved setups"></ul>
+      <p id="setupsEmpty" class="setups-empty" hidden>
+        No setups yet — create your first tuning sheet.
+      </p>
+    </aside>
+    <section class="setups-editor" id="setupsEditor" hidden>
+      <header class="setups-editor-head">
+        <h2 id="setupsEditorTitle">New setup</h2>
+        <div class="setups-editor-actions">
+          <span id="setupsDirty" class="dirty-dot" hidden>● Unsaved changes</span>
+          <button id="setupsCancel" class="btn" type="button">Cancel</button>
+          <button id="setupsSave" class="btn primary" type="button" disabled>Save changes</button>
+        </div>
+      </header>
+      <div class="setups-meta">
+        <label>Name <input id="setupName" type="text" required maxlength="80" /></label>
+        <label>Car <input id="setupCar" type="text" maxlength="80" /></label>
+        <label>Track <input id="setupTrack" type="text" maxlength="80" /></label>
+        <div class="units-toggle" role="group" aria-label="Units">
+          <button type="button" data-units="metric">Metric</button>
+          <button type="button" data-units="english">English</button>
+        </div>
+      </div>
+      <div class="setups-strip" id="setupsStrip" aria-label="Section completeness"></div>
+      <div class="setups-sections" id="setupsSections"></div>
+      <label class="setups-notes">
+        <span>Notes</span>
+        <textarea id="setupNotes" rows="3" maxlength="2000"></textarea>
+      </label>
+    </section>
+  </main>
+
+  <script src="/static/common.js"></script>
   <script src="/static/app.js"></script>
+  <script src="/static/setups.js"></script>
 </body>
 </html>
