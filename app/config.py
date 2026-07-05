@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     log_stride: int = 5          # log every Nth packet
     log_format: str = "csv"      # csv | jsonl | both
 
+    # Setup library (one JSON file per setup)
+    setups_dir: str = "./setups"
+
     # Rolling buffer
     buffer_frames: int = 600
 

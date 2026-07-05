@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 
 from ..insights.service import InsightsService
+from ..store.setups import is_valid_setup_id
 from ..telemetry.frame import TelemetryFrame
 from ..telemetry.listener import TelemetryServer
 
@@ -164,3 +165,95 @@ async def lap_detail(lap_number: int):
     if out is None:
         return JSONResponse({"error": f"lap {lap_number} not found"}, status_code=404)
     return out
+
+
+# ---- setup library ----------------------------------------------------------
+# ROADMAP item 3: setups stored as JSON in setups/; the current live session
+# can reference one setup via an in-memory id (persisted by item 5's
+# sessions.json). State lives on router.state["setups"] + ["current_setup_id"].
+
+
+@router.get("/api/setups")
+async def setups_list() -> dict:
+    store = router.state.get("setups")
+    if store is None:
+        return JSONResponse({"error": "setups store not initialized"}, status_code=503)
+    return {"setups": store.list()}
+
+
+@router.get("/api/setups/{setup_id}")
+async def setup_detail(setup_id: str):
+    store = router.state.get("setups")
+    if store is None:
+        return JSONResponse({"error": "setups store not initialized"}, status_code=503)
+    out = store.get(setup_id)
+    if out is None:
+        return JSONResponse({"error": f"setup {setup_id} not found"}, status_code=404)
+    return out
+
+
+@router.post("/api/setups")
+async def setup_create(payload: dict | None = None) -> dict:
+    store = router.state.get("setups")
+    if store is None:
+        return JSONResponse({"error": "setups store not initialized"}, status_code=503)
+    try:
+        return store.create(payload or {})
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@router.put("/api/setups/{setup_id}")
+async def setup_update(setup_id: str, payload: dict | None = None):
+    store = router.state.get("setups")
+    if store is None:
+        return JSONResponse({"error": "setups store not initialized"}, status_code=503)
+    try:
+        out = store.update(setup_id, payload or {})
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    if out is None:
+        return JSONResponse({"error": f"setup {setup_id} not found"}, status_code=404)
+    return out
+
+
+@router.delete("/api/setups/{setup_id}")
+async def setup_delete(setup_id: str):
+    store = router.state.get("setups")
+    if store is None:
+        return JSONResponse({"error": "setups store not initialized"}, status_code=503)
+    if not store.delete(setup_id):
+        return JSONResponse({"error": f"setup {setup_id} not found"}, status_code=404)
+    return {"deleted": setup_id}
+
+
+@router.post("/api/session/setup")
+async def session_attach_setup(payload: dict | None = None) -> dict:
+    store = router.state.get("setups")
+    if store is None:
+        return JSONResponse({"error": "setups store not initialized"}, status_code=503)
+    setup_id = (payload or {}).get("setup_id")
+    if setup_id is None:
+        router.state["current_setup_id"] = None
+        return {"setup_id": None, "setup": None}
+    # Validate format BEFORE store lookup so bad format = 400, missing = 404.
+    if not is_valid_setup_id(setup_id):
+        return JSONResponse(
+            {"error": "setup_id must be a 32-char lowercase hex string"},
+            status_code=400,
+        )
+    out = store.get(setup_id)
+    if out is None:
+        return JSONResponse({"error": f"setup {setup_id} not found"}, status_code=404)
+    router.state["current_setup_id"] = setup_id
+    return {"setup_id": setup_id, "setup": out}
+
+
+@router.get("/api/session/setup")
+async def session_current_setup() -> dict:
+    store = router.state.get("setups")
+    setup_id = router.state.get("current_setup_id")
+    if not setup_id:
+        return {"setup_id": None, "setup": None}
+    setup = store.get(setup_id) if store is not None else None
+    return {"setup_id": setup_id, "setup": setup}

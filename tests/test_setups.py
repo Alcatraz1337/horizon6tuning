@@ -1,0 +1,431 @@
+"""Setup data model + store tests — ROADMAP item 3.
+
+Verifies field normalization, id validation, file CRUD, and the seven HTTP
+routes.
+
+Run:  conda run -n fh6tuning python -m pytest tests/test_setups.py -q
+   or conda run -n fh6tuning python tests/test_setups.py
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from app.store.setups import (
+    Setup, SETUP_FIELD_SCHEMA, is_valid_setup_id, _normalize_fields,
+)
+
+
+# ---- 1. field schema shape --------------------------------------------------
+
+def test_field_schema_has_nine_sections() -> None:
+    assert set(SETUP_FIELD_SCHEMA) == {
+        "tire_pressure", "gearing", "alignment", "anti_roll_bars",
+        "springs", "damping", "aero", "brake", "differential",
+    }
+
+
+def test_field_schema_alignment_is_per_axle() -> None:
+    assert SETUP_FIELD_SCHEMA["alignment"] == [
+        "camber_front", "camber_rear", "toe_front", "toe_rear", "caster",
+    ]
+
+
+def test_field_schema_damping_uses_bump_not_compression() -> None:
+    assert SETUP_FIELD_SCHEMA["damping"] == [
+        "rebound_front", "rebound_rear", "bump_front", "bump_rear",
+    ]
+
+
+def test_field_schema_brake_is_bias_pressure() -> None:
+    assert SETUP_FIELD_SCHEMA["brake"] == ["bias", "pressure"]
+
+
+def test_field_schema_diff_has_no_preload() -> None:
+    assert "preload_front" not in SETUP_FIELD_SCHEMA["differential"]
+    assert SETUP_FIELD_SCHEMA["differential"] == [
+        "accel_lock_front", "accel_lock_rear",
+        "decel_lock_front", "decel_lock_rear",
+        "center_balance",
+    ]
+
+
+# ---- 2. normalization -------------------------------------------------------
+
+def test_normalize_drops_unknown_sections_and_fields() -> None:
+    out = _normalize_fields({
+        "tire_pressure": {"fl": 30, "bogus": 99},
+        "not_a_section": {"x": 1},
+    })
+    assert out == {"tire_pressure": {"fl": 30}}
+    assert "not_a_section" not in out
+    assert "bogus" not in out["tire_pressure"]
+
+
+def test_normalize_coerces_numeric_strings_to_float() -> None:
+    out = _normalize_fields({"tire_pressure": {"fl": "32", "fr": "30.5"}})
+    assert out == {"tire_pressure": {"fl": 32.0, "fr": 30.5}}
+    assert isinstance(out["tire_pressure"]["fl"], float)
+
+
+def test_normalize_keeps_non_numeric_strings_as_is() -> None:
+    out = _normalize_fields({"brake": {"bias": "front"}})
+    assert out == {"brake": {"bias": "front"}}
+
+
+def test_normalize_gears_is_list_of_floats() -> None:
+    out = _normalize_fields({"gearing": {"final_drive": "3.2", "gears": ["3.5", "2.1", "1.0"]}})
+    assert out == {"gearing": {"final_drive": 3.2, "gears": [3.5, 2.1, 1.0]}}
+    assert isinstance(out["gearing"]["gears"], list)
+
+
+def test_normalize_non_dict_returns_empty() -> None:
+    assert _normalize_fields(None) == {}
+    assert _normalize_fields("nope") == {}
+
+
+# ---- 3. id validation -------------------------------------------------------
+
+def test_is_valid_setup_id() -> None:
+    assert is_valid_setup_id("a3f1b2c4d5e6f7089a1b2c3d4e5f6071") is True
+    assert is_valid_setup_id("deadbeef") is False            # too short
+    assert is_valid_setup_id("not-a-uuid") is False
+    assert is_valid_setup_id("../etc/passwd") is False        # path traversal
+    assert is_valid_setup_id("A3F1B2C4D5E6F7089A1B2C3D4E5F6071") is False  # uppercase
+
+
+# ---- 4. Setup.as_dict -------------------------------------------------------
+
+def test_setup_as_dict_roundtrip() -> None:
+    s = Setup(id="a3f1b2c4d5e6f7089a1b2c3d4e5f6071", name="R32 Fuji",
+              car="R32", track="Fuji", fields={"tire_pressure": {"fl": 32.0}},
+              notes="baseline", created_at=1000.0, updated_at=1000.0)
+    d = s.as_dict()
+    assert d["id"] == "a3f1b2c4d5e6f7089a1b2c3d4e5f6071"
+    assert d["name"] == "R32 Fuji"
+    assert d["fields"] == {"tire_pressure": {"fl": 32.0}}
+    assert d["created_at"] == 1000.0
+
+
+# ---- 5. SetupStore file CRUD ------------------------------------------------
+
+from app.store.setups import SetupStore
+
+
+def test_create_get_roundtrip(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "R32 Fuji", "car": "R32", "track": "Fuji",
+                            "fields": {"tire_pressure": {"fl": 32}}})
+    assert is_valid_setup_id(created["id"])
+    assert created["name"] == "R32 Fuji"
+    assert created["car"] == "R32"
+    assert created["track"] == "Fuji"
+    assert created["fields"] == {"tire_pressure": {"fl": 32.0}}
+    assert created["created_at"] == created["updated_at"]
+    # persisted to disk
+    assert (tmp_path / f"{created['id']}.json").exists()
+    # get returns the same
+    got = store.get(created["id"])
+    assert got == created
+
+
+def test_create_normalizes_fields(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "x", "fields": {
+        "tire_pressure": {"fl": "30", "bogus": 1}, "nope": {}}})
+    assert created["fields"] == {"tire_pressure": {"fl": 30.0}}
+
+
+def test_create_requires_name(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    try:
+        store.create({"car": "R32"})
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError for missing name")
+
+
+def test_create_empty_name_rejected(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    try:
+        store.create({"name": "   "})
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError for blank name")
+
+
+def test_list_returns_summaries_sorted_desc(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    a = store.create({"name": "a"})
+    b = store.create({"name": "b"})
+    c = store.create({"name": "c"})
+    summaries = store.list()
+    assert len(summaries) == 3
+    # newest first (c created last)
+    assert summaries[0]["id"] == c["id"]
+    assert summaries[-1]["id"] == a["id"]
+    # summaries have no `fields`
+    for s in summaries:
+        assert set(s) == {"id", "name", "car", "track", "notes", "updated_at"}
+        assert "fields" not in s
+
+
+def test_update_preserves_id_and_created_at(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "old", "fields": {"aero": {"front_downforce": 100}}})
+    updated = store.update(created["id"], {"name": "new",
+                                           "fields": {"aero": {"rear_downforce": 200}}})
+    assert updated is not None
+    assert updated["id"] == created["id"]
+    assert updated["created_at"] == created["created_at"]
+    assert updated["updated_at"] >= created["updated_at"]
+    assert updated["name"] == "new"
+    # fields replaced, not merged
+    assert updated["fields"] == {"aero": {"rear_downforce": 200.0}}
+    assert "front_downforce" not in updated["fields"]["aero"]
+
+
+def test_update_missing_returns_none(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    assert store.update("a3f1b2c4d5e6f7089a1b2c3d4e5f6071", {"name": "x"}) is None
+
+
+def test_update_empty_name_rejected(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "ok"})
+    try:
+        store.update(created["id"], {"name": ""})
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError for empty name on update")
+
+
+def test_delete(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "x"})
+    assert store.delete(created["id"]) is True
+    assert store.get(created["id"]) is None
+    assert store.delete(created["id"]) is False  # already gone
+
+
+def test_bad_id_rejection(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    for bad in ("../etc/passwd", "not-a-uuid", "deadbeef"):
+        assert store.get(bad) is None
+        assert store.update(bad, {"name": "x"}) is None
+        assert store.delete(bad) is False
+    # no files were created for bad ids
+    assert list(tmp_path.glob("*")) == []
+
+
+def test_atomic_write_leaves_no_tmp(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "x"})
+    assert list(tmp_path.glob("*.tmp")) == []
+    data = json.loads((tmp_path / f"{created['id']}.json").read_text())
+    assert data["name"] == "x"
+
+
+def test_store_creates_dir_if_missing(tmp_path) -> None:
+    sub = tmp_path / "nested" / "setups"
+    store = SetupStore(sub)
+    assert sub.exists()
+    store.create({"name": "x"})
+    assert sub.is_dir()
+
+
+# ---- 6. config + package exports -------------------------------------------
+
+def test_settings_has_setups_dir_default() -> None:
+    from app.config import Settings
+    s = Settings()
+    assert s.setups_dir == "./setups"
+
+
+def test_store_package_exports() -> None:
+    import app.store as store_pkg
+    assert hasattr(store_pkg, "Setup")
+    assert hasattr(store_pkg, "SetupStore")
+    assert "Setup" in store_pkg.__all__
+    assert "SetupStore" in store_pkg.__all__
+
+
+# ---- 7. API routes ---------------------------------------------------------
+
+def _setup_router_state_with_store(store: SetupStore) -> None:
+    from app.api import routes
+    routes.router.state = {"setups": store, "current_setup_id": None}
+
+
+def _setup_router_state_no_store() -> None:
+    from app.api import routes
+    routes.router.state = {}
+
+
+def test_api_setups_list_and_create() -> None:
+    from app.api.routes import setups_list, setup_create
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = SetupStore(d)
+        _setup_router_state_with_store(store)
+        out = asyncio.run(setups_list())
+        assert out == {"setups": []}
+        created = asyncio.run(setup_create({"name": "R32", "car": "R32"}))
+        assert is_valid_setup_id(created["id"])
+        out = asyncio.run(setups_list())
+        assert len(out["setups"]) == 1
+        assert out["setups"][0]["name"] == "R32"
+
+
+def test_api_setup_create_400_missing_name() -> None:
+    from app.api.routes import setup_create
+    from fastapi.responses import JSONResponse
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = SetupStore(d)
+        _setup_router_state_with_store(store)
+        res = asyncio.run(setup_create({"car": "x"}))
+        assert isinstance(res, JSONResponse)
+        assert res.status_code == 400
+
+
+def test_api_setup_detail_found_and_404() -> None:
+    from app.api.routes import setup_detail, setup_create
+    from fastapi.responses import JSONResponse
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = SetupStore(d)
+        _setup_router_state_with_store(store)
+        created = asyncio.run(setup_create({"name": "x"}))
+        got = asyncio.run(setup_detail(created["id"]))
+        assert isinstance(got, dict)
+        assert got["id"] == created["id"]
+        missing = asyncio.run(setup_detail("a3f1b2c4d5e6f7089a1b2c3d4e5f6071"))
+        assert isinstance(missing, JSONResponse)
+        assert missing.status_code == 404
+
+
+def test_api_setup_update_and_delete() -> None:
+    from app.api.routes import setup_create, setup_update, setup_delete
+    from fastapi.responses import JSONResponse
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = SetupStore(d)
+        _setup_router_state_with_store(store)
+        created = asyncio.run(setup_create({"name": "old"}))
+        updated = asyncio.run(setup_update(created["id"], {"name": "new"}))
+        assert isinstance(updated, dict)
+        assert updated["name"] == "new"
+        # 404 on missing
+        miss = asyncio.run(setup_update("a3f1b2c4d5e6f7089a1b2c3d4e5f6071", {"name": "x"}))
+        assert isinstance(miss, JSONResponse) and miss.status_code == 404
+        # delete
+        deleted = asyncio.run(setup_delete(created["id"]))
+        assert deleted == {"deleted": created["id"]}
+        miss2 = asyncio.run(setup_delete(created["id"]))
+        assert isinstance(miss2, JSONResponse) and miss2.status_code == 404
+
+
+def test_api_session_attach_and_read() -> None:
+    from app.api.routes import (
+        session_current_setup, session_attach_setup, setup_create,
+    )
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = SetupStore(d)
+        _setup_router_state_with_store(store)
+        # initially nothing
+        out = asyncio.run(session_current_setup())
+        assert out == {"setup_id": None, "setup": None}
+        # attach
+        created = asyncio.run(setup_create({"name": "R32"}))
+        attached = asyncio.run(session_attach_setup({"setup_id": created["id"]}))
+        assert attached["setup_id"] == created["id"]
+        assert attached["setup"]["name"] == "R32"
+        # read back
+        out = asyncio.run(session_current_setup())
+        assert out["setup_id"] == created["id"]
+        assert out["setup"]["name"] == "R32"
+        # detach with null
+        detached = asyncio.run(session_attach_setup({"setup_id": None}))
+        assert detached == {"setup_id": None, "setup": None}
+        assert asyncio.run(session_current_setup()) == {"setup_id": None, "setup": None}
+
+
+def test_api_session_attach_400_bad_format() -> None:
+    from app.api.routes import session_attach_setup
+    from fastapi.responses import JSONResponse
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = SetupStore(d)
+        _setup_router_state_with_store(store)
+        for bad in ("not-a-uuid", "deadbeef", "../etc/passwd"):
+            res = asyncio.run(session_attach_setup({"setup_id": bad}))
+            assert isinstance(res, JSONResponse) and res.status_code == 400, bad
+
+
+def test_api_session_attach_404_valid_but_missing() -> None:
+    from app.api.routes import session_attach_setup
+    from fastapi.responses import JSONResponse
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = SetupStore(d)
+        _setup_router_state_with_store(store)
+        res = asyncio.run(session_attach_setup(
+            {"setup_id": "a3f1b2c4d5e6f7089a1b2c3d4e5f6071"}))
+        assert isinstance(res, JSONResponse) and res.status_code == 404
+
+
+def test_api_session_dangling_after_delete() -> None:
+    from app.api.routes import (
+        session_attach_setup, session_current_setup, setup_create, setup_delete,
+    )
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = SetupStore(d)
+        _setup_router_state_with_store(store)
+        created = asyncio.run(setup_create({"name": "x"}))
+        asyncio.run(session_attach_setup({"setup_id": created["id"]}))
+        asyncio.run(setup_delete(created["id"]))
+        out = asyncio.run(session_current_setup())
+        assert out["setup_id"] == created["id"]   # dangling id stays
+        assert out["setup"] is None               # but the setup is gone
+
+
+def test_api_setups_503_when_store_missing() -> None:
+    from app.api.routes import setups_list
+    from fastapi.responses import JSONResponse
+    _setup_router_state_no_store()
+    res = asyncio.run(setups_list())
+    assert isinstance(res, JSONResponse) and res.status_code == 503
+
+
+# ---- 8. main.py wiring -----------------------------------------------------
+
+def test_create_app_has_setup_routes() -> None:
+    from app.api import routes
+    paths = {getattr(r, "path", None) for r in routes.router.routes}
+    assert "/api/setups" in paths
+    assert "/api/session/setup" in paths
+    assert "/api/setups/{setup_id}" in paths
+
+
+if __name__ == "__main__":
+    _run_all = [v for k, v in sorted(globals().items())
+                if k.startswith("test_") and callable(v)]
+    for fn in _run_all:
+        # tmp_path tests need a temp dir; make one per call
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            try:
+                fn(Path(d))
+                continue
+            except TypeError:
+                pass
+            fn()
+    print("setup data model tests passed")
