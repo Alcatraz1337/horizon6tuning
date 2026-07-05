@@ -415,6 +415,134 @@ def test_create_app_has_setup_routes() -> None:
     assert "/api/setups/{setup_id}" in paths
 
 
+# ---- 9. Setup.units field + SetupStore unit conversion ---------------------
+
+_VALID_UNITS = ("english", "metric")
+
+
+def test_create_default_units_is_english(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "x"})
+    assert created["units"] == "english"
+
+
+def test_create_explicit_units_metric(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "x", "units": "metric"})
+    assert created["units"] == "metric"
+
+
+def test_create_invalid_units_defaults_to_english(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "x", "units": "klingon"})
+    assert created["units"] == "english"
+
+
+def test_get_backward_compat_no_units_field(tmp_path) -> None:
+    """A hand-written item-3 file with no `units` reads back as english."""
+    sid = "a3f1b2c4d5e6f7089a1b2c3d4e5f6071"
+    (tmp_path / f"{sid}.json").write_text(json.dumps({
+        "id": sid, "name": "old", "car": "", "track": "",
+        "fields": {}, "notes": "",
+        "created_at": 1000.0, "updated_at": 1000.0,
+    }))
+    store = SetupStore(tmp_path)
+    got = store.get(sid)
+    assert got is not None
+    assert got["units"] == "english"
+
+
+def test_update_units_change_converts_fields(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "x", "units": "english", "fields": {
+        "tire_pressure": {"front": 32.0, "rear": 30.0},
+        "springs": {"spring_rate_front": 500.0, "ride_height_front": 5.0},
+        "alignment": {"camber_front": -1.5},
+        "brake": {"bias": 55.0},
+        "differential": {"center_balance": 50.0},
+        "gearing": {"final_drive": 3.2, "gears": [3.5, 2.1, 1.0]},
+    }})
+    updated = store.update(created["id"], {
+        "units": "metric",
+        # fields sent are interpreted as being in the OLD (english) unit,
+        # which is what the editor will do; mirror them here.
+        "fields": {
+            "tire_pressure": {"front": 32.0, "rear": 30.0},
+            "springs": {"spring_rate_front": 500.0, "ride_height_front": 5.0},
+            "alignment": {"camber_front": -1.5},
+            "brake": {"bias": 55.0},
+            "differential": {"center_balance": 50.0},
+            "gearing": {"final_drive": 3.2, "gears": [3.5, 2.1, 1.0]},
+        },
+    })
+    assert updated is not None
+    assert updated["units"] == "metric"
+    f = updated["fields"]
+    # tire pressure: 32 PSI -> 2.21 bar; 30 PSI -> 2.07 bar
+    assert abs(f["tire_pressure"]["front"] - 32.0 * 0.0689476) < 0.01
+    assert abs(f["tire_pressure"]["rear"] - 30.0 * 0.0689476) < 0.01
+    # spring rate: 500 lb/in -> 8.93 kgf/mm
+    assert abs(f["springs"]["spring_rate_front"] - 500.0 * 0.017857) < 0.01
+    # ride height: 5 in -> 12.7 cm
+    assert abs(f["springs"]["ride_height_front"] - 5.0 * 2.54) < 0.01
+    # non-convertible fields unchanged
+    assert f["alignment"]["camber_front"] == -1.5
+    assert f["brake"]["bias"] == 55.0
+    assert f["differential"]["center_balance"] == 50.0
+    assert f["gearing"]["final_drive"] == 3.2
+    assert f["gearing"]["gears"] == [3.5, 2.1, 1.0]
+
+
+def test_update_units_round_trip_within_tolerance(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "x", "units": "english", "fields": {
+        "tire_pressure": {"front": 32.0},
+        "springs": {"spring_rate_front": 500.0, "ride_height_front": 5.0},
+    }})
+    sid = created["id"]
+    # english -> metric
+    m = store.update(sid, {"units": "metric", "fields": {
+        "tire_pressure": {"front": 32.0},
+        "springs": {"spring_rate_front": 500.0, "ride_height_front": 5.0},
+    }})
+    assert m["units"] == "metric"
+    # metric -> english (using the metric values as the new "current")
+    e = store.update(sid, {"units": "english", "fields": {
+        "tire_pressure": {"front": m["fields"]["tire_pressure"]["front"]},
+        "springs": {"spring_rate_front": m["fields"]["springs"]["spring_rate_front"],
+                    "ride_height_front": m["fields"]["springs"]["ride_height_front"]},
+    }})
+    assert e["units"] == "english"
+    assert abs(e["fields"]["tire_pressure"]["front"] - 32.0) < 0.01
+    assert abs(e["fields"]["springs"]["spring_rate_front"] - 500.0) < 0.01
+    assert abs(e["fields"]["springs"]["ride_height_front"] - 5.0) < 0.01
+
+
+def test_update_units_no_change_is_noop(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "x", "units": "english", "fields": {
+        "tire_pressure": {"front": 32.0},
+    }})
+    updated = store.update(created["id"], {
+        "units": "english",
+        "fields": {"tire_pressure": {"front": 33.5}},  # just a regular edit
+    })
+    assert updated["fields"]["tire_pressure"]["front"] == 33.5  # plain overwrite
+
+
+def test_file_adapts_on_disk_after_unit_change(tmp_path) -> None:
+    store = SetupStore(tmp_path)
+    created = store.create({"name": "x", "units": "english", "fields": {
+        "tire_pressure": {"front": 32.0},
+    }})
+    store.update(created["id"], {"units": "metric", "fields": {
+        "tire_pressure": {"front": 32.0},
+    }})
+    raw = json.loads((tmp_path / f"{created['id']}.json").read_text())
+    assert raw["units"] == "metric"
+    assert abs(raw["fields"]["tire_pressure"]["front"] - 32.0 * 0.0689476) < 0.01
+
+
 if __name__ == "__main__":
     _run_all = [v for k, v in sorted(globals().items())
                 if k.startswith("test_") and callable(v)]
@@ -428,4 +556,4 @@ if __name__ == "__main__":
             except TypeError:
                 pass
             fn()
-    print("setup data model tests passed")
+    print("setup editor tests passed")

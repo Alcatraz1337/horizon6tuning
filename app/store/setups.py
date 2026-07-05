@@ -245,7 +245,16 @@ _ID_RE = re.compile(r"^[a-f0-9]{32}$")
 
 # Keys kept when re-reading a setup file (guards against hand-edited extras).
 _SETUP_KEYS = ("id", "name", "car", "track", "fields", "notes",
-               "created_at", "updated_at")
+               "units", "created_at", "updated_at")
+
+_VALID_UNITS = ("english", "metric")
+
+
+def _normalize_units(u) -> str:
+    """Default invalid/missing unit values to 'english' (permissive)."""
+    if isinstance(u, str) and u in _VALID_UNITS:
+        return u
+    return "english"
 
 
 @dataclass
@@ -258,6 +267,7 @@ class Setup:
     track: str = ""
     fields: dict = field(default_factory=dict)
     notes: str = ""
+    units: str = "english"
     created_at: float = 0.0
     updated_at: float = 0.0
 
@@ -349,7 +359,9 @@ class SetupStore:
             data = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
-        return {k: data[k] for k in _SETUP_KEYS if k in data}
+        result = {k: data[k] for k in _SETUP_KEYS if k in data}
+        result.setdefault("units", "english")
+        return result
 
     def create(self, data: dict) -> dict:
         """Create a new setup. Raises ValueError if `name` is missing/blank."""
@@ -364,6 +376,7 @@ class SetupStore:
             track=str(data.get("track", "")).strip(),
             fields=_normalize_fields(data.get("fields") or {}),
             notes=str(data.get("notes", "")),
+            units=_normalize_units(data.get("units")),
             created_at=now,
             updated_at=now,
         )
@@ -372,7 +385,14 @@ class SetupStore:
 
     def update(self, setup_id: str, data: dict) -> Optional[dict]:
         """Update an existing setup. None if not found / invalid id.
-        Raises ValueError if a provided name is blank."""
+        Raises ValueError if a provided name is blank.
+
+        If `units` is supplied and differs from the stored unit, the merged
+        fields are converted from the old unit to the new unit before save.
+        Fields supplied in `data["fields"]` are interpreted as being in the
+        OLD (stored) unit — this is the contract the editor uses, so the
+        converted values returned reflect the user's last-typed state.
+        """
         p = self._path(setup_id)
         if p is None or not p.exists():
             return None
@@ -381,6 +401,7 @@ class SetupStore:
         except (OSError, json.JSONDecodeError):
             return None
         merged = {k: existing[k] for k in _SETUP_KEYS if k in existing}
+        merged.setdefault("units", "english")
         if "name" in data:
             merged["name"] = str(data["name"]).strip()
         if "car" in data:
@@ -393,6 +414,12 @@ class SetupStore:
             merged["fields"] = _normalize_fields(data["fields"])
         if not str(merged.get("name", "")).strip():
             raise ValueError("setup 'name' cannot be empty")
+        # unit conversion
+        old_units = merged["units"]
+        new_units = _normalize_units(data["units"]) if "units" in data else old_units
+        if new_units != old_units:
+            merged["fields"] = _convert_units(merged["fields"], old_units, new_units)
+        merged["units"] = new_units
         merged["id"] = existing.get("id", setup_id)
         merged["created_at"] = existing.get("created_at", 0.0)
         merged["updated_at"] = time.time()
