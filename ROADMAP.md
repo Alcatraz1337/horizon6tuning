@@ -83,7 +83,13 @@ same branch as the implementation.
    invalid-unit default, non-convertible pass-through. `tire_pressure` schema
    corrected to per-axle (was per-wheel). Spec at
    `docs/superpowers/specs/2026-07-05-setup-editor-design.md`. Not yet merged to
-   `main`. Item 21 (in-app setup library: search/filter/duplicate) builds on this.)*
+   `main`. Item 21 (in-app setup library: search/filter/duplicate) builds on
+   this. **Round 2** (R2-1..R2-5, manual-verification fixes): `[hidden]` CSS
+   rule so live/setups views actually hide; inline Current chip in row (no
+   Detach overlap); preserve details-section open/closed state across
+   re-renders; unit toggle enables Save (in-memory only; Save back-converts
+   fields to old unit to honor the SetupStore.update contract); clearer
+   empty-state copy. New E2E test pins the R2-4 back-conversion contract.)*
 5. **Session index + simple session browser** — maintain a `sessions.json`
    index (alongside the existing CSV/JSONL logs) listing each session with
    `{id, started_at, car, track, setup_id, best_lap, lap_count, log_paths}`.
