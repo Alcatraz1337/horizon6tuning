@@ -587,44 +587,15 @@
     const newUnits = e.currentTarget.dataset.units;
     if (newUnits === FORM.units) return;
     const oldUnits = FORM.units;
-    if (LOADED && !LOADED.__new) {
-      // Existing setup: send the CURRENT (old-unit) fields together with the
-      // new units. The backend is the conversion authority — it treats the
-      // sent fields as being in the old unit and runs _convert_units
-      // (SetupStore.update contract). We must NOT pre-convert in the
-      // frontend or the conversion happens twice.
-      const fieldsToSend = deepClone(FORM.fields);
-      try {
-        const out = await fetchJSON(`/api/setups/${encodeURIComponent(LOADED.id)}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: FORM.name, car: FORM.car, track: FORM.track,
-            fields: fieldsToSend, notes: FORM.notes, units: newUnits,
-          }),
-        });
-        LOADED = out;
-        FORM = {
-          name: out.name, car: out.car, track: out.track,
-          fields: deepClone(out.fields), notes: out.notes, units: out.units,
-        };
-        toast(`Saved in ${newUnits}`);
-        syncUnitsToggle();
-        await refreshList();
-        renderStrip(); renderSections(); updateDirty();
-      } catch (err) {
-        toast(`Couldn't save units: ${err.message}`);
-      }
-    } else {
-      // New setup: nothing exists on disk yet. Apply the conversion in-memory
-      // so the displayed values match the new unit labels, and flip the
-      // displayed unit. The first Save will write the converted form to disk.
-      FORM.fields = convertFields(FORM.fields, oldUnits, newUnits);
-      FORM.units = newUnits;
-      syncUnitsToggle();
-      toast(`Units: ${newUnits}`);
-      renderStrip(); renderSections(); updateDirty();
-    }
+    // R2-4: unit toggle is now ALWAYS in-memory only. The form becomes
+    // dirty; the user must click Save to persist. (Previously, the
+    // existing-setup branch was immediate-PUT, which the user reported
+    // as surprising — they expected the toggle to enable Save.)
+    FORM.fields = convertFields(FORM.fields, oldUnits, newUnits);
+    FORM.units = newUnits;
+    syncUnitsToggle();
+    toast(`Units: ${newUnits}`);
+    renderStrip(); renderSections(); updateDirty();
   }
 
   // ---- save / cancel -------------------------------------------------------
@@ -635,9 +606,18 @@
       $name.focus();
       return;
     }
+    // R2-4: if the user toggled units since load, FORM.fields is in the
+    // new unit but the SetupStore.update contract says the wire payload
+    // fields must be in the OLD (stored) unit. Back-convert before sending
+    // so the backend can run its own OLD→new conversion and the disk ends
+    // up in the new unit. (For __new setups, FORM.units IS the stored unit.)
+    let fieldsToSend = FORM.fields;
+    if (!LOADED.__new && FORM.units !== LOADED.units) {
+      fieldsToSend = convertFields(FORM.fields, FORM.units, LOADED.units);
+    }
     const payload = {
       name: FORM.name.trim(), car: FORM.car, track: FORM.track,
-      fields: FORM.fields, notes: FORM.notes, units: FORM.units,
+      fields: fieldsToSend, notes: FORM.notes, units: FORM.units,
     };
     try {
       $save.disabled = true;
