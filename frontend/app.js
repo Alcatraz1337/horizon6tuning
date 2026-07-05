@@ -1,8 +1,6 @@
 // horizon6tuning dashboard client: WebSocket telemetry + LLM insights.
 "use strict";
 
-const $ = (id) => document.getElementById(id);
-
 // ---- live sparkline (RPM + speed) ----
 const ctx = $("sparkline").getContext("2d");
 const chart = new Chart(ctx, {
