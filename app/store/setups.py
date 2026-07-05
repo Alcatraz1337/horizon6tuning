@@ -24,14 +24,15 @@ from typing import Optional
 
 # The 9 FH6 tuning sections and their canonical field names — single source of
 # truth that the item 4 editor UI will also read. Verified against FH6-specific
-# guides (see docs/superpowers/specs/2026-07-04-setup-data-model-design.md).
+# guides (see docs/superpowers/specs/2026-07-05-setup-editor-design.md).
 # Per FH6: camber/toe/spring-rate/ride-height/rebound/bump are per-axle
-# (front/rear), not per-wheel; tire pressure is per-wheel; caster is single;
-# damping uses "bump" (the FH6 slider label), not "compression"; brake tuning
-# is bias+pressure (pad/rotor are upgrade parts, not sliders); diff has
-# accel/decel lock per axle + a single center_balance for AWD, no preload.
+# (front/rear), not per-wheel; tire pressure is per-AXLE (2 sliders), not
+# per-wheel; caster is single; damping uses "bump" (the FH6 slider label), not
+# "compression"; brake tuning is bias+pressure (pad/rotor are upgrade parts,
+# not sliders); diff has accel/decel lock per axle + a single center_balance
+# for AWD, no preload.
 SETUP_FIELD_SCHEMA: dict[str, list[str]] = {
-    "tire_pressure":   ["fl", "fr", "rl", "rr"],
+    "tire_pressure":   ["front", "rear"],                  # PSI/bar, per-axle
     "gearing":         ["final_drive", "gears"],
     "alignment":       ["camber_front", "camber_rear",
                         "toe_front", "toe_rear",
@@ -48,13 +49,212 @@ SETUP_FIELD_SCHEMA: dict[str, list[str]] = {
                         "center_balance"],
 }
 
+# Per-field presentation metadata, keyed by (section, field). `group` is one of
+# "per_axle" (Front|Rear pair in the UI), "single" (one input), or "list"
+# (variable-length gears array). `unit` is the canonical unit for display;
+# `unit_metric` / `unit_english` are the labels shown in the toggle;
+# `conversion` is the multiplier applied to an English value to get the
+# metric value (None for non-convertible fields like degrees, ratios, %).
+# This is the single source of truth for both the schema endpoint and the
+# server-side unit converter; the frontend never invents factors.
+SETUP_FIELD_META: dict[tuple[str, str], dict] = {
+    # tire pressure — PSI <-> bar
+    ("tire_pressure", "front"): {
+        "label": "Front", "group": "per_axle",
+        "unit": "psi", "unit_metric": "bar", "unit_english": "psi",
+        "conversion": 0.0689476,
+    },
+    ("tire_pressure", "rear"): {
+        "label": "Rear", "group": "per_axle",
+        "unit": "psi", "unit_metric": "bar", "unit_english": "psi",
+        "conversion": 0.0689476,
+    },
+    # gearing — ratios, no conversion
+    ("gearing", "final_drive"): {
+        "label": "Final drive", "group": "single",
+        "unit": "ratio", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    ("gearing", "gears"): {
+        "label": "Gears", "group": "list",
+        "unit": "ratio", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    # alignment — degrees, no conversion
+    ("alignment", "camber_front"): {
+        "label": "Camber front", "group": "per_axle",
+        "unit": "deg", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    ("alignment", "camber_rear"): {
+        "label": "Camber rear", "group": "per_axle",
+        "unit": "deg", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    ("alignment", "toe_front"): {
+        "label": "Toe front", "group": "per_axle",
+        "unit": "deg", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    ("alignment", "toe_rear"): {
+        "label": "Toe rear", "group": "per_axle",
+        "unit": "deg", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    ("alignment", "caster"): {
+        "label": "Caster", "group": "single",
+        "unit": "deg", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    # anti-roll bars — unitless stiffness
+    ("anti_roll_bars", "front"): {
+        "label": "Front", "group": "per_axle",
+        "unit": "stiffness", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    ("anti_roll_bars", "rear"): {
+        "label": "Rear", "group": "per_axle",
+        "unit": "stiffness", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    # springs — spring rate lb/in <-> kgf/mm; ride height in <-> cm
+    ("springs", "spring_rate_front"): {
+        "label": "Spring rate front", "group": "per_axle",
+        "unit": "lb/in", "unit_metric": "kgf/mm", "unit_english": "lb/in",
+        "conversion": 0.017857,
+    },
+    ("springs", "spring_rate_rear"): {
+        "label": "Spring rate rear", "group": "per_axle",
+        "unit": "lb/in", "unit_metric": "kgf/mm", "unit_english": "lb/in",
+        "conversion": 0.017857,
+    },
+    ("springs", "ride_height_front"): {
+        "label": "Ride height front", "group": "per_axle",
+        "unit": "in", "unit_metric": "cm", "unit_english": "in",
+        "conversion": 2.54,
+    },
+    ("springs", "ride_height_rear"): {
+        "label": "Ride height rear", "group": "per_axle",
+        "unit": "in", "unit_metric": "cm", "unit_english": "in",
+        "conversion": 2.54,
+    },
+    # damping — unitless
+    ("damping", "rebound_front"): {
+        "label": "Rebound front", "group": "per_axle",
+        "unit": "rebound", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    ("damping", "rebound_rear"): {
+        "label": "Rebound rear", "group": "per_axle",
+        "unit": "rebound", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    ("damping", "bump_front"): {
+        "label": "Bump front", "group": "per_axle",
+        "unit": "bump", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    ("damping", "bump_rear"): {
+        "label": "Bump rear", "group": "per_axle",
+        "unit": "bump", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    # aero — downforce level
+    ("aero", "front_downforce"): {
+        "label": "Front downforce", "group": "per_axle",
+        "unit": "downforce", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    ("aero", "rear_downforce"): {
+        "label": "Rear downforce", "group": "per_axle",
+        "unit": "downforce", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    # brake — bias % and pressure %
+    ("brake", "bias"): {
+        "label": "Brake bias", "group": "single",
+        "unit": "%", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    ("brake", "pressure"): {
+        "label": "Brake pressure", "group": "single",
+        "unit": "%", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    # differential — accel/decel lock % per axle; center_balance %
+    ("differential", "accel_lock_front"): {
+        "label": "Accel lock front", "group": "per_axle",
+        "unit": "%", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    ("differential", "accel_lock_rear"): {
+        "label": "Accel lock rear", "group": "per_axle",
+        "unit": "%", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    ("differential", "decel_lock_front"): {
+        "label": "Decel lock front", "group": "per_axle",
+        "unit": "%", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    ("differential", "decel_lock_rear"): {
+        "label": "Decel lock rear", "group": "per_axle",
+        "unit": "%", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+    ("differential", "center_balance"): {
+        "label": "Center balance (AWD)", "group": "single",
+        "unit": "%", "unit_metric": None, "unit_english": None,
+        "conversion": None,
+    },
+}
+
+
+def _convert_units(fields: dict, old: str, new: str) -> dict:
+    """Convert the three convertible field families between english and metric.
+
+    `fields` is a (normalized) sections-dict. Returns a NEW dict; the input
+    is not mutated. Non-convertible fields (degrees, ratios, %) pass through
+    unchanged. A no-op when old == new.
+    """
+    if old == new or not isinstance(fields, dict):
+        return dict(fields) if isinstance(fields, dict) else {}
+
+    def _conv(section: str, field: str, value):
+        meta = SETUP_FIELD_META.get((section, field))
+        if meta is None or meta["conversion"] is None:
+            return value
+        if old == "english" and new == "metric":
+            return value * meta["conversion"]
+        if old == "metric" and new == "english":
+            return value / meta["conversion"]
+        return value
+
+    out: dict = {}
+    for section, section_in in fields.items():
+        if not isinstance(section_in, dict):
+            continue
+        out[section] = {
+            fn: _conv(section, fn, v) for fn, v in section_in.items()
+        }
+    return out
+
 # uuid4 hex: 32 lowercase hex chars. Used to validate user-supplied ids before
 # any filesystem path is constructed, blocking path traversal cold.
 _ID_RE = re.compile(r"^[a-f0-9]{32}$")
 
 # Keys kept when re-reading a setup file (guards against hand-edited extras).
 _SETUP_KEYS = ("id", "name", "car", "track", "fields", "notes",
-               "created_at", "updated_at")
+               "units", "created_at", "updated_at")
+
+_VALID_UNITS = ("english", "metric")
+
+
+def _normalize_units(u) -> str:
+    """Default invalid/missing unit values to 'english' (permissive)."""
+    if isinstance(u, str) and u in _VALID_UNITS:
+        return u
+    return "english"
 
 
 @dataclass
@@ -67,6 +267,7 @@ class Setup:
     track: str = ""
     fields: dict = field(default_factory=dict)
     notes: str = ""
+    units: str = "english"
     created_at: float = 0.0
     updated_at: float = 0.0
 
@@ -158,7 +359,9 @@ class SetupStore:
             data = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
-        return {k: data[k] for k in _SETUP_KEYS if k in data}
+        result = {k: data[k] for k in _SETUP_KEYS if k in data}
+        result.setdefault("units", "english")
+        return result
 
     def create(self, data: dict) -> dict:
         """Create a new setup. Raises ValueError if `name` is missing/blank."""
@@ -173,6 +376,7 @@ class SetupStore:
             track=str(data.get("track", "")).strip(),
             fields=_normalize_fields(data.get("fields") or {}),
             notes=str(data.get("notes", "")),
+            units=_normalize_units(data.get("units")),
             created_at=now,
             updated_at=now,
         )
@@ -181,7 +385,14 @@ class SetupStore:
 
     def update(self, setup_id: str, data: dict) -> Optional[dict]:
         """Update an existing setup. None if not found / invalid id.
-        Raises ValueError if a provided name is blank."""
+        Raises ValueError if a provided name is blank.
+
+        If `units` is supplied and differs from the stored unit, the merged
+        fields are converted from the old unit to the new unit before save.
+        Fields supplied in `data["fields"]` are interpreted as being in the
+        OLD (stored) unit — this is the contract the editor uses, so the
+        converted values returned reflect the user's last-typed state.
+        """
         p = self._path(setup_id)
         if p is None or not p.exists():
             return None
@@ -190,6 +401,7 @@ class SetupStore:
         except (OSError, json.JSONDecodeError):
             return None
         merged = {k: existing[k] for k in _SETUP_KEYS if k in existing}
+        merged.setdefault("units", "english")
         if "name" in data:
             merged["name"] = str(data["name"]).strip()
         if "car" in data:
@@ -202,6 +414,12 @@ class SetupStore:
             merged["fields"] = _normalize_fields(data["fields"])
         if not str(merged.get("name", "")).strip():
             raise ValueError("setup 'name' cannot be empty")
+        # unit conversion
+        old_units = merged["units"]
+        new_units = _normalize_units(data["units"]) if "units" in data else old_units
+        if new_units != old_units:
+            merged["fields"] = _convert_units(merged["fields"], old_units, new_units)
+        merged["units"] = new_units
         merged["id"] = existing.get("id", setup_id)
         merged["created_at"] = existing.get("created_at", 0.0)
         merged["updated_at"] = time.time()
