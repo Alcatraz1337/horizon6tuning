@@ -169,6 +169,31 @@ async def lap_detail(lap_number: int):
     return out
 
 
+# ---- setup schema ----------------------------------------------------------
+# ROADMAP item 4: the Setups editor fetches the 9-section field schema
+# (label, group, unit, conversion) once on load and renders the form
+# dynamically. Reads module-level constants — no store dependency, works
+# even before SetupStore is initialized (no 503 path).
+#
+# This route is defined BEFORE the `/api/setups/{setup_id}` routes below so
+# that the literal path "schema" is matched first; otherwise FastAPI would
+# interpret "schema" as a setup_id and 404.
+
+
+@router.get("/api/setups/schema")
+async def setups_schema() -> dict:
+    sections: list[dict] = []
+    for section_key, field_keys in SETUP_FIELD_SCHEMA.items():
+        fields: list[dict] = []
+        for fk in field_keys:
+            meta = SETUP_FIELD_META[(section_key, fk)]
+            fields.append({"key": fk, **meta})
+        # human-friendly section label = section_key with underscores -> spaces, titlecased
+        label = section_key.replace("_", " ").title()
+        sections.append({"key": section_key, "label": label, "fields": fields})
+    return {"sections": sections}
+
+
 # ---- setup library ----------------------------------------------------------
 # ROADMAP item 3: setups stored as JSON in setups/; the current live session
 # can reference one setup via an in-memory id (persisted by item 5's
@@ -259,23 +284,3 @@ async def session_current_setup() -> dict:
         return {"setup_id": None, "setup": None}
     setup = store.get(setup_id) if store is not None else None
     return {"setup_id": setup_id, "setup": setup}
-
-
-# ---- setup schema ----------------------------------------------------------
-# ROADMAP item 4: the Setups editor fetches the 9-section field schema
-# (label, group, unit, conversion) once on load and renders the form
-# dynamically. Reads module-level constants — no store dependency, works
-# even before SetupStore is initialized (no 503 path).
-
-@router.get("/api/setups/schema")
-async def setups_schema() -> dict:
-    sections: list[dict] = []
-    for section_key, field_keys in SETUP_FIELD_SCHEMA.items():
-        fields: list[dict] = []
-        for fk in field_keys:
-            meta = SETUP_FIELD_META[(section_key, fk)]
-            fields.append({"key": fk, **meta})
-        # human-friendly section label = section_key with underscores -> spaces, titlecased
-        label = section_key.replace("_", " ").title()
-        sections.append({"key": section_key, "label": label, "fields": fields})
-    return {"sections": sections}
