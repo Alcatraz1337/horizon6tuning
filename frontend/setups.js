@@ -357,17 +357,27 @@
   }
 
   function pairPerAxle(fields) {
-    // for fields with suffix _front/_rear, pair them; otherwise group all together as one row
+    // Pair per-axle fields into Front|Rear rows.
+    // Two patterns: suffixed (camber_front/camber_rear) and bare (front/rear).
     const out = [];
     const seen = new Set();
+    const partner = (key) => {
+      const suff = key.match(/^(.*)_(front|rear)$/);
+      if (suff) {
+        const other = suff[2] === "front" ? "rear" : "front";
+        return `${suff[1]}_${other}`;
+      }
+      if (key === "front") return "rear";
+      if (key === "rear") return "front";
+      return null;
+    };
     for (const f of fields) {
       if (seen.has(f.key)) continue;
-      const m = f.key.match(/^(.*)_(front|rear)$/);
-      if (m) {
-        const partnerKey = `${m[1]}_${m[2] === "front" ? "rear" : "front"}`;
-        const partner = fields.find(x => x.key === partnerKey);
-        out.push(partner ? [f, partner] : [f]);
-        seen.add(f.key); if (partner) seen.add(partner.key);
+      const pk = partner(f.key);
+      if (pk) {
+        const p = fields.find(x => x.key === pk);
+        out.push(p ? [f, p] : [f]);
+        seen.add(f.key); if (p) seen.add(p.key);
       } else {
         out.push([f]);
         seen.add(f.key);
