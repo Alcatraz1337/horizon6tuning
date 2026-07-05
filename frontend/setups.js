@@ -133,10 +133,13 @@
       li.querySelector(".row-meta").textContent =
         `${carTrack || "—"} · updated ${relativeTime(s.updated_at)}`;
       if (CURRENT_SETUP_ID === s.id) {
-        const badge = document.createElement("span");
-        badge.className = "badge";
-        badge.textContent = "● Current";
-        li.appendChild(badge);
+        // Inline "● Current" chip inside the name row (NOT absolute-positioned
+        // over the Detach button). Fixes R2-2: previous layout overlapped
+        // the badge and the Detach button.
+        const chip = document.createElement("span");
+        chip.className = "row-current";
+        chip.textContent = "● Current";
+        li.querySelector(".row-name").appendChild(chip);
         const det = btn("Detach", async (e) => {
           e.stopPropagation();
           await attach(null);
