@@ -10,6 +10,7 @@
   let LIST = [];               // saved-setups summaries
   let LOADED = null;           // the setup loaded into the editor (dict or {__new:true})
   let FORM = null;             // in-memory edit state mirroring LOADED
+  let OPEN_SECTIONS = new Set();   // section keys the user has expanded (persists across re-renders)
 
   // ---- DOM refs ------------------------------------------------------------
   const $live = $("liveView");
@@ -221,6 +222,7 @@
 
   function loadIntoEditor(setup) {
     LOADED = setup;
+    OPEN_SECTIONS = new Set(SCHEMA.sections[0] ? [SCHEMA.sections[0].key] : []);
     FORM = setup.__new
       ? { name: "", car: "", track: "", fields: {}, notes: "", units: "english" }
       : {
@@ -295,7 +297,14 @@
     SCHEMA.sections.forEach((sec, i) => {
       const card = document.createElement("details");
       card.className = "section-card";
-      card.open = i === 0;  // first section open
+      // R2-3: respect the user's previous open/closed state.
+      // First-section default only applies when the set is empty (fresh load).
+      if (OPEN_SECTIONS.size === 0 && i === 0) {
+        card.open = true;
+        OPEN_SECTIONS.add(sec.key);
+      } else {
+        card.open = OPEN_SECTIONS.has(sec.key);
+      }
       const total = sec.fields.length;
       const filled = sectionFillCount(sec);
       const sum = document.createElement("summary");
@@ -308,6 +317,9 @@
       // group fields by their layout (per_axle/single/list)
       renderSectionBody(body, sec);
       card.addEventListener("toggle", () => {
+        // Persist the new open/closed state (R2-3).
+        if (card.open) OPEN_SECTIONS.add(sec.key);
+        else OPEN_SECTIONS.delete(sec.key);
         // re-render fill count when toggled (no-op for content, but cheap)
         const total = sec.fields.length;
         const filled = sectionFillCount(sec);
