@@ -536,12 +536,19 @@ def test_e2e_save_after_unit_toggle_back_converts(tmp_path) -> None:
             assert r.status_code == 200
             body = r.json()
             assert body["units"] == "metric"
-            # Single backend conversion: 32 PSI -> 2.21 bar
+            # Single backend conversion for all three convertible families:
+            # 32 PSI -> 2.21 bar
             assert abs(body["fields"]["tire_pressure"]["front"] - 32.0 * 0.0689476) < 0.01
+            # 500 lb/in -> 8.93 kgf/mm
+            assert abs(body["fields"]["springs"]["spring_rate_front"] - 500.0 * 0.017857) < 0.01
+            # 5 in -> 12.7 cm
+            assert abs(body["fields"]["springs"]["ride_height_front"] - 5.0 * 2.54) < 0.01
             # File on disk reflects the conversion
             raw = json.loads((tmp_path / f"{sid}.json").read_text())
             assert raw["units"] == "metric"
             assert abs(raw["fields"]["tire_pressure"]["front"] - 32.0 * 0.0689476) < 0.01
+            assert abs(raw["fields"]["springs"]["spring_rate_front"] - 500.0 * 0.017857) < 0.01
+            assert abs(raw["fields"]["springs"]["ride_height_front"] - 5.0 * 2.54) < 0.01
     finally:
         os.environ.pop("SETUPS_DIR", None)
         os.environ.pop("UDP_PORT", None)
