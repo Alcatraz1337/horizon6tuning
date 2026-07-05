@@ -405,27 +405,194 @@ Committed alongside the spec. Launch `python -m app.main` +
 `python scripts/fake_sender.py`, open `http://127.0.0.1:8000`:
 
 - Topbar shows Live/Setups tabs + current-setup chip ("no setup attached").
+  - **PASSED**
 - Click Setups → URL becomes `#setups`, Setups view shown, live grid hidden;
   Live WS stays connected (verify by returning to Live and seeing fresh
-  telemetry).
+  telemetry). - **FAILED**: Manual Results: Live telemetry and setup panal
+  are displaying at the same page, which means the clicking the Live/Setup
+  toggle is not changing the page 
 - Empty list: "No setups yet — create your first tuning sheet." + New setup.
+  - **PASSED**
 - New setup: Name placeholder; Tire pressure open, other 8 collapsed; Save
-  disabled until Name non-empty.
+  disabled until Name non-empty. - **FAILED**: When entering from a new session,
+  no setup is attached, so the default page is displaying only the Name, Car,
+  Track and Metric/English toggle and the note section. other tuning section is
+  not displaying. Unless the user selects existing setup, so that other
+  section will show up.
 - Fill fields → 9-segment strip + per-section `k/N` counts update live.
-- Save → toast "Saved"; list pane shows the new row; chip unchanged.
+- Save → toast "Saved"; list pane shows the new row; chip unchanged. - **FAILED**
+  Scenario: when the user first edit one field then change the unit, all the
+  user manually expanded section will collapse, and the 'save' button will be 
+  disabled while the user input values still persists. The user can re-enter the
+  values and the 'save' button will be enabled. - **PASSED**
 - Edit an existing setup → dirty dot appears on first edit; Save writes;
-  Cancel-on-dirty confirms.
+  Cancel-on-dirty confirms. - **PASSED**
 - Attach a row → chip shows `▸ {name}`; Current badge on the row; Detach
-  returns chip to "no setup attached".
+  returns chip to "no setup attached". - **FAILED** Deteched badge is overlaping
+  with the '* Current' badge
 - Delete → confirm dialog → row removed; if deleted setup was current, chip
-  reverts to "no setup attached".
+  reverts to "no setup attached". - **BLOCKED** by above item. '* current' badge
+  is blocking the view of delete button.
 - Unit toggle on an existing setup → values convert (32 PSI → 2.2 bar),
   toast "Saved in metric"; reopen the setup → still metric; toggle back →
   32 PSI returns. Inspect `setups/{id}.json` on disk → shows metric values +
-  `"units": "metric"` after the switch.
+  `"units": "metric"` after the switch. - **FAILED**: Only switching the Units
+  will not enable the 'Save' button, expected to enable it. Other is ok.
 - Narrow the window to ≤980px → single-pane list/editor swap with back
-  button.
+  button. - **PASSED**
 - Hash on load: `http://127.0.0.1:8000/#setups` opens directly to Setups.
+  - **BLOCKED** by item 1.
+
+## Additional findings
+
+- Need to fix: All tuning section will collapsed on save and unit change. Expected
+  Hold the user selection.
+
+## Revisions from manual verification (round 2)
+
+After the initial implementation, manual browser verification surfaced 5 real
+defects. The user approved fixes for all 5. This section locks the decisions
+in place; the implementation tasks below are derived from it.
+
+### R2-Fix 1 — View routing: `[hidden]` is overridden by class `display: grid`
+
+**Symptom (manual step 1, 16):** Clicking the Setups tab does not hide the
+live grid. Both views render side-by-side on the same page.
+
+**Root cause:** `<main id="liveView" class="grid" hidden>` and
+`<main id="setupsView" class="setups-view" hidden>`. The class rules
+`.grid{display:grid}` and `.setups-view{display:grid}` have the same
+specificity as the user-agent `[hidden]{display:none}` rule and come later
+in the cascade, so `hidden` is ignored.
+
+**Fix:** Add one rule to `frontend/styles.css`:
+
+```css
+[hidden] { display: none !important; }
+```
+
+The `!important` is justified because `hidden` is a semantic HTML attribute
+the user agent guarantees to work; per-element `display: ...` rules must
+never override it.
+
+**Affected file:** `frontend/styles.css` (1 new rule).
+
+### R2-Fix 2 — Detach button overlaps the "● Current" badge
+
+**Symptom (manual step 9, 10):** On the currently-attached row, the Detach
+button sits on top of the "● Current" badge (or vice versa). The Detach
+button is also impossible to click without removing the row.
+
+**Root cause:** Both elements are `position: absolute; top:8px; right:8px`.
+The CSS for `.current .row-actions` shifts actions to `right: 54px`, but
+the badge is appended AFTER the actions div in the DOM, so it paints on top
+regardless of `right:` offset.
+
+**Fix:** Drop the absolute-positioned `.badge` for current rows. Instead,
+when a row is current, prepend a small "Current" chip inline with the row
+name (in the row content flow, not absolutely positioned). The Detach
+button stays at `right: 8px` with no conflict.
+
+**Affected files:** `frontend/setups.js` (renderList current-row branch
+inserts a `<span class="row-current">● Current</span>` into the row's
+content div, not after the actions div); `frontend/styles.css` (remove
+`.setups-list-items .badge` rule; add `.row-current` styled as a small
+amber chip inline with the name).
+
+### R2-Fix 3 — Preserve `<details>` open/closed state across re-renders
+
+**Symptom (manual step 7, "Additional findings"):** The user opens
+sections 3 and 5 to edit; clicks Save (or toggles units); the form
+re-renders and sections 3 and 5 collapse back to the default
+"only section 1 open" state. The user's data is preserved (in `FORM`),
+but the navigation context is lost.
+
+**Root cause:** `renderSections()` unconditionally sets
+`card.open = i === 0` for every section on every render.
+
+**Fix:** Track open sections as a `Set<string>` of section keys in module
+state (`OPEN_SECTIONS`). On render: `card.open = OPEN_SECTIONS.has(sec.key)`
+(default to `false` for keys not in the set, EXCEPT the first section
+when the set is empty — that keeps the "first open on initial load"
+behavior). On the `<details>` `toggle` event: add/remove `sec.key` from
+the set. Reset to `new Set([sections[0].key])` on `loadIntoEditor()` of a
+new setup (so a brand-new setup still opens the first section).
+
+**Affected file:** `frontend/setups.js` only. No CSS change.
+
+### R2-Fix 4 — Unit toggle now enables Save (in-memory only until Save)
+
+**Symptom (manual step 12):** Clicking Metric/English on an existing
+setup converts the values on disk (immediate PUT) but the user expected
+the Save button to enable so the change can be reviewed / batched with
+other edits.
+
+**Behavior change (approved by user):** The unit toggle on an existing
+setup is no longer immediate-save. It now:
+
+1. Converts `FORM.fields` in-memory (english ↔ metric) and updates
+   `FORM.units`.
+2. Marks the form dirty (Save button enables, dirty dot appears).
+3. Does NOT touch the disk.
+
+The user must click Save to persist. **The Save click must still satisfy
+the `SetupStore.update` contract ("sent fields are in the OLD unit").**
+So the Save path becomes:
+
+1. If `FORM.units !== LOADED.units` (user toggled unit since load),
+   convert `FORM.fields` back from `FORM.units` to `LOADED.units`
+   before sending. The backend then runs its own conversion
+   (`LOADED.units` → `FORM.units`) and the net effect is one conversion
+   on the wire, matching the disk's new-unit values.
+2. Send `{units: FORM.units, fields: <LOADED-unit fields>}`.
+
+**Affected file:** `frontend/setups.js` (`onUnitsToggle` reverts to the
+in-memory-only path; `save()` adds the back-conversion block when
+`FORM.units !== LOADED.units`).
+
+**No backend change.** The contract is preserved end-to-end.
+
+### R2-Fix 5 — Clearer empty-state copy
+
+**Symptom (manual step 3):** The empty-state text is "No setups yet —
+create your first tuning sheet." but does not tell the user what to
+click. The user is on the Setups view for the first time and doesn't
+see the tuning sections.
+
+**Root cause (clarified with user):** Keep the "empty list + New setup
+button" UX (not auto-open the editor). Just make the call-to-action
+explicit.
+
+**Fix:** Change the empty-state text in `frontend/index.html` to:
+
+> "No setups yet. Click **+ New setup** to create your first tuning
+> sheet."
+
+(Plus the existing `+ New setup` button is already prominent and styled
+as `.btn.primary` — no CSS change.)
+
+**Affected file:** `frontend/index.html` (1 line change).
+
+### Testing / verification for the round-2 fixes
+
+- **R2-Fix 1:** Visual: click Live / Setups tabs in a browser; only one
+  view should be visible. No automated test (CSS rule is one line;
+  the `!important` is unambiguous).
+- **R2-Fix 2:** Visual: attach a setup; the row should show "● Current"
+  inline with the name, Detach button at the right, no overlap; click
+  Detach — the badge disappears and the row reverts to non-current
+  state. No automated test.
+- **R2-Fix 3:** Visual: open sections 3 and 5; click Save; both
+  remain open. Click unit toggle (with the new R2-Fix 4 behavior);
+  both remain open. No automated test.
+- **R2-Fix 4:** The existing `test_e2e_schema_and_unit_toggle_via_http`
+  already pins the single-conversion contract end-to-end. The new
+  behavior (unit toggle in-memory only, Save persists) keeps the
+  contract: Save back-converts before sending. A new test
+  `test_e2e_unit_toggle_then_save_via_http` will be added that
+  mirrors the frontend's R2-Fix 4 contract: PUT body fields in the
+  OLD unit, even though `FORM.units` says the new unit.
+- **R2-Fix 5:** No test; visual + 1-line HTML change.
 
 ## Out of scope (deferred)
 
