@@ -437,9 +437,19 @@
 
   function makeListGroup(f, list) {
     const sec = currentSectionFor(f);
-    FORM.fields[sec] = FORM.fields[sec] || {};
-    const arr = Array.isArray(FORM.fields[sec][f.key]) ? FORM.fields[sec][f.key] : [];
-    FORM.fields[sec][f.key] = arr;
+    // Read the existing array from FORM, or fall back to an empty local.
+    // Don't write back to FORM.fields during render — that would inject
+    // empty arrays into FORM, spuriously marking the form as dirty.
+    const existing = (FORM.fields[sec] || {})[f.key];
+    let arr = Array.isArray(existing) ? existing.slice() : [];
+    const writeBack = () => {
+      FORM.fields[sec] = FORM.fields[sec] || {};
+      if (arr.length === 0) {
+        delete FORM.fields[sec][f.key];
+      } else {
+        FORM.fields[sec][f.key] = arr;
+      }
+    };
     const labels = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th"];
     const drawRows = () => {
       list.innerHTML = "";
@@ -458,6 +468,7 @@
         input.addEventListener("input", () => {
           const x = parseFloat(input.value);
           arr[idx] = isNaN(x) ? null : x;
+          writeBack();
           updateDirty(); renderStrip(); updateFillCounts();
         });
         iw.appendChild(input);
@@ -471,7 +482,8 @@
         rm.textContent = "×";
         rm.title = "Remove gear";
         rm.addEventListener("click", () => {
-          arr.splice(idx, 1); drawRows(); updateDirty(); renderStrip(); updateFillCounts();
+          arr.splice(idx, 1); drawRows(); writeBack();
+          updateDirty(); renderStrip(); updateFillCounts();
         });
         row.append(lbl, iw, rm);
         list.appendChild(row);
@@ -486,7 +498,8 @@
       const last = arr.length ? Number(arr[arr.length - 1]) : 3.0;
       const next = isNaN(last) ? 1.0 : Math.max(0.5, last * 0.75);
       arr.push(Number(next.toFixed(3)));
-      drawRows(); updateDirty(); renderStrip(); updateFillCounts();
+      drawRows(); writeBack();
+      updateDirty(); renderStrip(); updateFillCounts();
     });
     const wrap = document.createElement("div");
     wrap.append(list, add);
@@ -559,19 +572,20 @@
     const newUnits = e.currentTarget.dataset.units;
     if (newUnits === FORM.units) return;
     const oldUnits = FORM.units;
-    // convert current formState fields (interpreted as oldUnits) to newUnits
-    FORM.fields = convertFields(FORM.fields, oldUnits, newUnits);
-    FORM.units = newUnits;
-    syncUnitsToggle();
     if (LOADED && !LOADED.__new) {
-      // existing setup — immediate save (server converts too; we mirror here)
+      // Existing setup: send the CURRENT (old-unit) fields together with the
+      // new units. The backend is the conversion authority — it treats the
+      // sent fields as being in the old unit and runs _convert_units
+      // (SetupStore.update contract). We must NOT pre-convert in the
+      // frontend or the conversion happens twice.
+      const fieldsToSend = deepClone(FORM.fields);
       try {
         const out = await fetchJSON(`/api/setups/${encodeURIComponent(LOADED.id)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: FORM.name, car: FORM.car, track: FORM.track,
-            fields: FORM.fields, notes: FORM.notes, units: newUnits,
+            fields: fieldsToSend, notes: FORM.notes, units: newUnits,
           }),
         });
         LOADED = out;
@@ -580,13 +594,19 @@
           fields: deepClone(out.fields), notes: out.notes, units: out.units,
         };
         toast(`Saved in ${newUnits}`);
+        syncUnitsToggle();
         await refreshList();
         renderStrip(); renderSections(); updateDirty();
       } catch (err) {
         toast(`Couldn't save units: ${err.message}`);
       }
     } else {
-      // new setup — just re-render with the new unit labels
+      // New setup: nothing exists on disk yet. Apply the conversion in-memory
+      // so the displayed values match the new unit labels, and flip the
+      // displayed unit. The first Save will write the converted form to disk.
+      FORM.fields = convertFields(FORM.fields, oldUnits, newUnits);
+      FORM.units = newUnits;
+      syncUnitsToggle();
       toast(`Units: ${newUnits}`);
       renderStrip(); renderSections(); updateDirty();
     }

@@ -415,6 +415,76 @@ def test_create_app_has_setup_routes() -> None:
     assert "/api/setups/{setup_id}" in paths
 
 
+def test_e2e_schema_and_unit_toggle_via_http(tmp_path) -> None:
+    """End-to-end via the live HTTP path.
+
+    (a) Catches the route-order bug where /api/setups/{setup_id} would shadow
+        /api/setups/schema and return 404. Previous tests called
+        setups_schema() directly and missed this.
+    (b) Pins the SetupStore.update contract: PUT with old-unit fields +
+        new units must produce a single, correct conversion. The frontend
+        unit-toggle path relies on this.
+
+    Combined into one test because each TestClient(create_app()) binds the
+    UDP listener in its lifespan, and pytest doesn't release the port fast
+    enough between consecutive TestClient instances.
+    """
+    import os
+    os.environ["SETUPS_DIR"] = str(tmp_path)
+    try:
+        from importlib import reload
+        from app import config as _config, main as _main
+        reload(_config)
+        reload(_main)
+        from fastapi.testclient import TestClient
+        with TestClient(_main.create_app()) as c:
+            # (a) schema endpoint
+            r = c.get("/api/setups/schema")
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert len(body["sections"]) == 9
+            assert body["sections"][0]["key"] == "tire_pressure"
+            assert [f["key"] for f in body["sections"][0]["fields"]] == ["front", "rear"]
+
+            # (b) unit toggle round-trip via HTTP
+            r = c.post("/api/setups", json={
+                "name": "e2e", "units": "english",
+                "fields": {
+                    "tire_pressure": {"front": 32.0, "rear": 30.0},
+                    "springs": {"spring_rate_front": 500.0, "ride_height_front": 5.0},
+                },
+            })
+            assert r.status_code == 200
+            sid = r.json()["id"]
+            r = c.put(f"/api/setups/{sid}", json={
+                "units": "metric",
+                "fields": {
+                    "tire_pressure": {"front": 32.0, "rear": 30.0},
+                    "springs": {"spring_rate_front": 500.0, "ride_height_front": 5.0},
+                },
+            })
+            assert r.status_code == 200
+            body = r.json()
+            assert body["units"] == "metric"
+            # Single conversion: 32 PSI -> 2.21 bar
+            # (NOT 32 * 0.0689476^2 = 0.152 — that would be a double conversion)
+            assert abs(body["fields"]["tire_pressure"]["front"] - 32.0 * 0.0689476) < 0.01
+            # 500 lb/in -> 8.93 kgf/mm
+            assert abs(body["fields"]["springs"]["spring_rate_front"] - 500.0 * 0.017857) < 0.01
+            # 5 in -> 12.7 cm
+            assert abs(body["fields"]["springs"]["ride_height_front"] - 5.0 * 2.54) < 0.01
+            # File on disk reflects the single conversion
+            raw = json.loads((tmp_path / f"{sid}.json").read_text())
+            assert raw["units"] == "metric"
+            assert abs(raw["fields"]["tire_pressure"]["front"] - 32.0 * 0.0689476) < 0.01
+    finally:
+        os.environ.pop("SETUPS_DIR", None)
+        from importlib import reload
+        from app import config as _config, main as _main
+        reload(_config)
+        reload(_main)
+
+
 # ---- 9. Setup.units field + SetupStore unit conversion ---------------------
 
 _VALID_UNITS = ("english", "metric")
