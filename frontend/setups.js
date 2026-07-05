@@ -45,6 +45,11 @@
   $cancel.addEventListener("click", cancel);
   $chip.classList.remove("has-setup");
 
+  // Listen for input changes on the whole sections container (delegated).
+  // Attached once at init — renderSections() re-creates the inner DOM, but
+  // the listener on the stable $sections parent is reused.
+  $sections.addEventListener("input", onFieldInput);
+
   bus.on("setup:change", (s) => {
     CURRENT_SETUP = s || null;
     CURRENT_SETUP_ID = s ? s.id : null;
@@ -310,8 +315,6 @@
       card.appendChild(body);
       $sections.appendChild(card);
     });
-    // also update fill count on every input change
-    $sections.addEventListener("input", onFieldInput);
   }
 
   function renderSectionBody(body, sec) {
@@ -617,6 +620,12 @@
       syncUnitsToggle();
       renderStrip(); renderSections(); updateDirty();
       await refreshList();
+      // If the saved setup is the one currently attached to the session,
+      // broadcast so the topbar chip updates (e.g. after a rename).
+      if (CURRENT_SETUP_ID === out.id) {
+        CURRENT_SETUP = out;
+        bus.emit("setup:change", out);
+      }
     } catch (e) {
       toast(`Save failed: ${e.message}`);
     } finally {
