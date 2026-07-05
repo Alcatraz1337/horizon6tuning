@@ -59,18 +59,18 @@ def test_field_schema_diff_has_no_preload() -> None:
 
 def test_normalize_drops_unknown_sections_and_fields() -> None:
     out = _normalize_fields({
-        "tire_pressure": {"fl": 30, "bogus": 99},
+        "tire_pressure": {"front": 30, "bogus": 99},
         "not_a_section": {"x": 1},
     })
-    assert out == {"tire_pressure": {"fl": 30}}
+    assert out == {"tire_pressure": {"front": 30}}
     assert "not_a_section" not in out
     assert "bogus" not in out["tire_pressure"]
 
 
 def test_normalize_coerces_numeric_strings_to_float() -> None:
-    out = _normalize_fields({"tire_pressure": {"fl": "32", "fr": "30.5"}})
-    assert out == {"tire_pressure": {"fl": 32.0, "fr": 30.5}}
-    assert isinstance(out["tire_pressure"]["fl"], float)
+    out = _normalize_fields({"tire_pressure": {"front": "32", "rear": "30.5"}})
+    assert out == {"tire_pressure": {"front": 32.0, "rear": 30.5}}
+    assert isinstance(out["tire_pressure"]["front"], float)
 
 
 def test_normalize_keeps_non_numeric_strings_as_is() -> None:
@@ -103,12 +103,12 @@ def test_is_valid_setup_id() -> None:
 
 def test_setup_as_dict_roundtrip() -> None:
     s = Setup(id="a3f1b2c4d5e6f7089a1b2c3d4e5f6071", name="R32 Fuji",
-              car="R32", track="Fuji", fields={"tire_pressure": {"fl": 32.0}},
+              car="R32", track="Fuji", fields={"tire_pressure": {"front": 32.0}},
               notes="baseline", created_at=1000.0, updated_at=1000.0)
     d = s.as_dict()
     assert d["id"] == "a3f1b2c4d5e6f7089a1b2c3d4e5f6071"
     assert d["name"] == "R32 Fuji"
-    assert d["fields"] == {"tire_pressure": {"fl": 32.0}}
+    assert d["fields"] == {"tire_pressure": {"front": 32.0}}
     assert d["created_at"] == 1000.0
 
 
@@ -120,12 +120,12 @@ from app.store.setups import SetupStore
 def test_create_get_roundtrip(tmp_path) -> None:
     store = SetupStore(tmp_path)
     created = store.create({"name": "R32 Fuji", "car": "R32", "track": "Fuji",
-                            "fields": {"tire_pressure": {"fl": 32}}})
+                            "fields": {"tire_pressure": {"front": 32}}})
     assert is_valid_setup_id(created["id"])
     assert created["name"] == "R32 Fuji"
     assert created["car"] == "R32"
     assert created["track"] == "Fuji"
-    assert created["fields"] == {"tire_pressure": {"fl": 32.0}}
+    assert created["fields"] == {"tire_pressure": {"front": 32.0}}
     assert created["created_at"] == created["updated_at"]
     # persisted to disk
     assert (tmp_path / f"{created['id']}.json").exists()
@@ -137,8 +137,8 @@ def test_create_get_roundtrip(tmp_path) -> None:
 def test_create_normalizes_fields(tmp_path) -> None:
     store = SetupStore(tmp_path)
     created = store.create({"name": "x", "fields": {
-        "tire_pressure": {"fl": "30", "bogus": 1}, "nope": {}}})
-    assert created["fields"] == {"tire_pressure": {"fl": 30.0}}
+        "tire_pressure": {"front": "30", "bogus": 1}, "nope": {}}})
+    assert created["fields"] == {"tire_pressure": {"front": 30.0}}
 
 
 def test_create_requires_name(tmp_path) -> None:
