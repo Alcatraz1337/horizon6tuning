@@ -58,7 +58,7 @@ same branch as the implementation.
    `{id, name, car, track, fields: {…}, notes, created_at}` and store setups
    as JSON files in `setups/`. The 9 field sections are listed in step 4.
    A session references one setup.
-4. **Setup editor (v1, all 9 categories)** `[in progress]` — a single page in the dashboard
+4. **Setup editor (v1, all 9 categories)** `[done · branch feature/setup-editor]` — a single page in the dashboard
    with 9 collapsible sections the user fills in (FH6-verified field shapes;
    the canonical field list lives in `app/store/setups.py::SETUP_FIELD_SCHEMA`):
    - **Tire pressure** — cold pressure FL/FR/RL/RR (PSI, per-wheel)
@@ -75,6 +75,15 @@ same branch as the implementation.
      center balance (AWD only; FH6 has no diff preload)
    Attach a setup to the current session so the LLM knows the *current* setup
    when it generates insight.
+   *(Implemented: `app/store/setups.py` `SETUP_FIELD_SCHEMA` + `SETUP_FIELD_META` +
+   `Setup.units` + `_convert_units`; `GET /api/setups/schema`; `frontend/common.js`
+   + `frontend/setups.js` with topbar tabs, hash routing, 9-segment strip,
+   explicit Save, Metric/English toggle, attach/detach. Tests: 8 new cases in
+   `tests/test_setups.py` cover schema shape, unit round-trip, file-adapts-on-disk,
+   invalid-unit default, non-convertible pass-through. `tire_pressure` schema
+   corrected to per-axle (was per-wheel). Spec at
+   `docs/superpowers/specs/2026-07-05-setup-editor-design.md`. Not yet merged to
+   `main`. Item 21 (in-app setup library: search/filter/duplicate) builds on this.)*
 5. **Session index + simple session browser** — maintain a `sessions.json`
    index (alongside the existing CSV/JSONL logs) listing each session with
    `{id, started_at, car, track, setup_id, best_lap, lap_count, log_paths}`.
