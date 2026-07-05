@@ -58,7 +58,7 @@ same branch as the implementation.
    `{id, name, car, track, fields: {…}, notes, created_at}` and store setups
    as JSON files in `setups/`. The 9 field sections are listed in step 4.
    A session references one setup.
-4. **Setup editor (v1, all 9 categories)** — a single page in the dashboard
+4. **Setup editor (v1, all 9 categories)** `[in progress]` — a single page in the dashboard
    with 9 collapsible sections the user fills in (FH6-verified field shapes;
    the canonical field list lives in `app/store/setups.py::SETUP_FIELD_SCHEMA`):
    - **Tire pressure** — cold pressure FL/FR/RL/RR (PSI, per-wheel)
