@@ -485,6 +485,72 @@ def test_e2e_schema_and_unit_toggle_via_http(tmp_path) -> None:
         reload(_main)
 
 
+def test_e2e_save_after_unit_toggle_back_converts(tmp_path) -> None:
+    """R2-4 contract: the frontend's unit toggle is in-memory only; the
+    user must click Save. The Save back-converts FORM.fields from the new
+    unit back to the OLD (stored) unit before sending, so the wire
+    payload satisfies the SetupStore.update contract ("sent fields are
+    in the OLD unit"). The backend then runs its own OLD->new conversion.
+
+    This test simulates that exact contract: the wire payload contains
+    ENGLISH values (32 PSI, 500 lb/in, 5 in) but `units: "metric"`. The
+    disk should end up in metric with converted values.
+
+    A separate UDP port from `test_e2e_schema_and_unit_toggle_via_http` is
+    used so the two TestClient lifespans (each binding the listener) don't
+    collide on port 9999 — the OS doesn't release a closed UDP socket fast
+    enough between back-to-back TestClient instances (see the note in the
+    sibling test above).
+    """
+    import os
+    os.environ["SETUPS_DIR"] = str(tmp_path)
+    os.environ["UDP_PORT"] = "47809"
+    try:
+        from importlib import reload
+        from app import config as _config, main as _main
+        reload(_config)
+        reload(_main)
+        from fastapi.testclient import TestClient
+        with TestClient(_main.create_app()) as c:
+            r = c.post("/api/setups", json={
+                "name": "r2-4", "units": "english",
+                "fields": {
+                    "tire_pressure": {"front": 32.0, "rear": 30.0},
+                    "springs": {"spring_rate_front": 500.0, "ride_height_front": 5.0},
+                },
+            })
+            assert r.status_code == 200
+            sid = r.json()["id"]
+
+            # Simulate: user toggles unit to metric (in-memory), then clicks
+            # Save. The Save back-converts FORM.fields to the OLD (english)
+            # unit, so the wire payload fields ARE in english even though
+            # `units: "metric"` says the new unit.
+            r = c.put(f"/api/setups/{sid}", json={
+                "units": "metric",
+                "fields": {
+                    "tire_pressure": {"front": 32.0, "rear": 30.0},   # english PSI
+                    "springs": {"spring_rate_front": 500.0, "ride_height_front": 5.0},
+                },
+            })
+            assert r.status_code == 200
+            body = r.json()
+            assert body["units"] == "metric"
+            # Single backend conversion: 32 PSI -> 2.21 bar
+            assert abs(body["fields"]["tire_pressure"]["front"] - 32.0 * 0.0689476) < 0.01
+            # File on disk reflects the conversion
+            raw = json.loads((tmp_path / f"{sid}.json").read_text())
+            assert raw["units"] == "metric"
+            assert abs(raw["fields"]["tire_pressure"]["front"] - 32.0 * 0.0689476) < 0.01
+    finally:
+        os.environ.pop("SETUPS_DIR", None)
+        os.environ.pop("UDP_PORT", None)
+        from importlib import reload
+        from app import config as _config, main as _main
+        reload(_config)
+        reload(_main)
+
+
 # ---- 9. Setup.units field + SetupStore unit conversion ---------------------
 
 _VALID_UNITS = ("english", "metric")
