@@ -543,6 +543,56 @@ def test_file_adapts_on_disk_after_unit_change(tmp_path) -> None:
     assert abs(raw["fields"]["tire_pressure"]["front"] - 32.0 * 0.0689476) < 0.01
 
 
+# ---- 10. /api/setups/schema endpoint ---------------------------------------
+
+def test_api_schema_shape() -> None:
+    from app.api.routes import setups_schema
+    out = asyncio.run(setups_schema())
+    assert isinstance(out, dict)
+    assert "sections" in out
+    sections = out["sections"]
+    # 9 sections in schema order
+    assert [s["key"] for s in sections] == [
+        "tire_pressure", "gearing", "alignment", "anti_roll_bars",
+        "springs", "damping", "aero", "brake", "differential",
+    ]
+    # per-section slider counts: 2/2/5/2/4/4/2/2/5
+    assert [len(s["fields"]) for s in sections] == [2, 2, 5, 2, 4, 4, 2, 2, 5]
+    # tire_pressure fields are front/rear
+    tp = sections[0]
+    assert [f["key"] for f in tp["fields"]] == ["front", "rear"]
+    # every field has the metadata keys
+    for s in sections:
+        for f in s["fields"]:
+            assert {"key", "label", "group", "unit",
+                    "unit_metric", "unit_english", "conversion"} <= set(f)
+            assert f["group"] in ("per_axle", "single", "list")
+    # convertible fields have non-null conversion + unit labels
+    front = tp["fields"][0]
+    assert front["conversion"] == 0.0689476
+    assert front["unit_metric"] == "bar"
+    assert front["unit_english"] == "psi"
+    # non-convertible fields have nulls
+    align_caster = sections[2]["fields"][4]
+    assert align_caster["key"] == "caster"
+    assert align_caster["conversion"] is None
+    assert align_caster["unit_metric"] is None
+    assert align_caster["unit_english"] is None
+    # gearing.gears is a list group
+    gears = sections[1]["fields"][1]
+    assert gears["key"] == "gears"
+    assert gears["group"] == "list"
+
+
+def test_api_schema_works_without_store() -> None:
+    """The schema endpoint reads module constants; no store dependency."""
+    from app.api import routes
+    routes.router.state = {}  # no setups key
+    from app.api.routes import setups_schema
+    out = asyncio.run(setups_schema())
+    assert len(out["sections"]) == 9
+
+
 if __name__ == "__main__":
     _run_all = [v for k, v in sorted(globals().items())
                 if k.startswith("test_") and callable(v)]

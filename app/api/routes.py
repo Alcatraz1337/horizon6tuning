@@ -17,7 +17,9 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 
 from ..insights.service import InsightsService
-from ..store.setups import is_valid_setup_id
+from ..store.setups import (
+    SETUP_FIELD_SCHEMA, SETUP_FIELD_META, is_valid_setup_id,
+)
 from ..telemetry.frame import TelemetryFrame
 from ..telemetry.listener import TelemetryServer
 
@@ -257,3 +259,23 @@ async def session_current_setup() -> dict:
         return {"setup_id": None, "setup": None}
     setup = store.get(setup_id) if store is not None else None
     return {"setup_id": setup_id, "setup": setup}
+
+
+# ---- setup schema ----------------------------------------------------------
+# ROADMAP item 4: the Setups editor fetches the 9-section field schema
+# (label, group, unit, conversion) once on load and renders the form
+# dynamically. Reads module-level constants — no store dependency, works
+# even before SetupStore is initialized (no 503 path).
+
+@router.get("/api/setups/schema")
+async def setups_schema() -> dict:
+    sections: list[dict] = []
+    for section_key, field_keys in SETUP_FIELD_SCHEMA.items():
+        fields: list[dict] = []
+        for fk in field_keys:
+            meta = SETUP_FIELD_META[(section_key, fk)]
+            fields.append({"key": fk, **meta})
+        # human-friendly section label = section_key with underscores -> spaces, titlecased
+        label = section_key.replace("_", " ").title()
+        sections.append({"key": section_key, "label": label, "fields": fields})
+    return {"sections": sections}
